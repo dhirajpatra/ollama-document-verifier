@@ -1,0 +1,49 @@
+services:
+  ollama:
+    # Use build context to build a custom image
+    build:
+      context: . # Build from the current directory (where Dockerfile.ollama is)
+      dockerfile: Dockerfile.ollama # Specify the custom Dockerfile
+    container_name: ollama
+    ports:
+      - "11434:11434" # Expose Ollama API to host
+    volumes:
+      - ollama_data:/root/.ollama # Persistent storage for models
+    entrypoint: /bin/bash # Keep this if you want to run the complex command as a script
+    command: >
+      -c "
+        /bin/ollama serve &
+        PID=$!
+        echo 'Waiting for Ollama to start...'
+        # Now curl should be available
+        until curl -s http://localhost:11434 > /dev/null; do
+          sleep 1
+        done
+        echo 'Ollama started. Pulling gemma:2b model...'
+        ollama pull gemma:2b
+        wait $PID
+      "
+    restart: unless-stopped
+    tty: true
+
+  document_verifier_app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: document_verifier_app
+    depends_on:
+      - ollama
+    ports:
+      - "8501:8501" # Expose Streamlit port to host
+    volumes:
+      - ./documents:/app/documents
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=gemma:2b
+    restart: on-failure
+    tty: true
+    stdin_open: true
+
+volumes:
+  ollama_data:
+    driver: local
