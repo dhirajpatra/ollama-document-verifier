@@ -1,5 +1,0 @@
-PyPDF2==3.0.1
-ollama
-fuzzywuzzy==0.18.0
-python-Levenshtein==0.25.1
-streamlit

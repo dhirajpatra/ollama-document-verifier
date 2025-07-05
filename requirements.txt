@@ -1,0 +1,15 @@
+streamlit==1.31.0
+pandas==2.1.4
+PyPDF2==3.0.1
+pdf2image==1.16.3
+pytesseract==0.3.10
+Pillow==10.2.0
+requests==2.31.0
+python-dateutil==2.8.2
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.21.1
+langchain==0.1.5
+langchain-community==0.0.13
+ollama==0.1.7
+streamlit-option-menu==0.3.12
+plotly==5.18.0
