@@ -9,7 +9,7 @@ python-dateutil==2.8.2
 fuzzywuzzy==0.18.0
 python-Levenshtein==0.21.1
 langchain==0.1.5
-langchain-community==0.0.13
+langchain-community==0.0.17
 ollama==0.1.7
 streamlit-option-menu==0.3.12
 plotly==5.18.0

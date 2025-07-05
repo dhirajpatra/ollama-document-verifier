@@ -1,7 +1,7 @@
-
 services:
   ollama:
-    image: ollama/ollama:latest
+    # Use your custom Dockerfile to build the Ollama service
+    build: ./ollama
     container_name: ollama
     volumes:
       - ./ollama_data:/root/.ollama
@@ -9,16 +9,14 @@ services:
       - "11434:11434"
     environment:
       - OLLAMA_HOST=0.0.0.0
-    command: >
-      sh -c "ollama serve & 
-             sleep 10 && 
-             ollama pull gemma:2b && 
-             wait"
+    restart: unless-stopped
     healthcheck:
+      # Keep the health check, but give it more time to start up and pull the model
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s # Increased timeout slightly
       retries: 5
+      start_period: 120s # Significantly increased start_period for first-time model pull
 
   streamlit:
     build: .
@@ -32,5 +30,5 @@ services:
       - OLLAMA_URL=http://ollama:11434
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_healthy # Now ollama should become healthy after pulling the model
     command: streamlit run app.py --server.address=0.0.0.0
