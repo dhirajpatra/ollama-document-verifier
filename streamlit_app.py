@@ -31,7 +31,7 @@ if not logger.handlers: # Prevent adding multiple handlers if script reloads
 
 # Page configuration
 st.set_page_config(
-    page_title="Document Verification System",
+    page_title="Document Verification System For Employment BG Checks",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -155,7 +155,7 @@ def main():
     # Header
     st.markdown("""
     <div class="main-header">
-        <h1>🔍 Document Verification System</h1>
+        <h1>🔍 Document Verification System With RAG and Intelligent REGEx For Employment BG Check</h1>
         <p>AI-powered CV and PF document verification using Ollama & Gemma 2B</p>
     </div>
     """, unsafe_allow_html=True)
