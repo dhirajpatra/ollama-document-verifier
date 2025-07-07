@@ -157,6 +157,7 @@ def main():
     <div class="main-header">
         <h1>🔍 Document Verification System With RAG and Intelligent REGEx For Employment BG Check</h1>
         <p>AI-powered CV and PF document verification using Ollama & Gemma 2B</p>
+        <p>Upload CV and PF documents to start verification. Due to RAG and intelligent string regex process can take considerable amount of time depends on CV and PF pdf size.</p>
     </div>
     """, unsafe_allow_html=True)
     
