@@ -382,47 +382,59 @@ def display_results(cv_data, pf_data, combined_results):
         display_rag_results(combined_results.get('rag_based_results', {})) # Call the RAG display function
 
 def display_summary(verification_results):
+    from datetime import datetime
+
     st.subheader("📋 String-based Verification Summary")
-    
-    # Create metrics columns
+
+    # Show main metrics
     col1, col2, col3, col4 = st.columns(4)
-    
     with col1:
-        st.metric(
-            "Overall Score", 
-            f"{verification_results.get('overall_score', 0)}%",
-            # This delta logic might need adjustment if you don't have a fixed comparison
-            delta=f"{verification_results.get('overall_score', 0) - 70}%" if verification_results.get('overall_score', 0) > 70 else None
-        )
-    
+        st.metric("Overall Score", f"{verification_results.get('overall_score', 0)}%")
     with col2:
-        st.metric(
-            "Matched Periods", 
-            verification_results.get('matched_periods', 0)
-        )
-    
+        st.metric("Matched Periods", verification_results.get("matched_periods", 0))
     with col3:
-        st.metric(
-            "Discrepancies", 
-            verification_results.get('discrepancies', 0)
-        )
-    
+        st.metric("Discrepancies", verification_results.get("discrepancies", 0))
     with col4:
-        st.metric(
-            "Missing Records", 
-            verification_results.get('missing_records', 0)
-        )
-    
-    # Issues and recommendations
-    if verification_results.get('issues'):
-        st.subheader("⚠️ Issues Found")
-        for issue in verification_results['issues']:
-            st.warning(f"• {issue}")
-    
-    if verification_results.get('recommendations'):
+        st.metric("Missing Records", verification_results.get("missing_records", 0))
+
+    # Show detailed mismatch report if available
+    if "period_analysis" in verification_results:
+        st.subheader("📆 Period Gap & Overlap Report")
+        for period in verification_results["period_analysis"]:
+            cv_start = period.get("cv_start")
+            cv_end = period.get("cv_end")
+            pf_start = period.get("pf_start")
+            pf_end = period.get("pf_end")
+
+            # Handle "Present"
+            if cv_end and cv_end.lower() == "present":
+                cv_end = datetime.now().strftime("%m/%Y")
+            if pf_end and pf_end.lower() == "present":
+                pf_end = datetime.now().strftime("%m/%Y")
+
+            with st.expander(f"Period: {period.get('period', 'Unknown')}"):
+                st.write(f"**CV Company:** {period.get('cv_company', 'N/A')}")
+                st.write(f"**PF Company:** {period.get('pf_company', 'N/A')}")
+                st.write(f"**Match Score:** {period.get('match_score', 0)}%")
+                st.write(f"**CV Duration:** {cv_start} to {cv_end}")
+                st.write(f"**PF Duration:** {pf_start} to {pf_end}")
+
+                if period.get("discrepancies"):
+                    st.warning("Discrepancies:")
+                    for d in period["discrepancies"]:
+                        st.write(f"- {d}")
+
+    # AI insights if available
+    if verification_results.get("ai_analysis"):
+        st.subheader("🧠 AI Insights")
+        st.info(verification_results["ai_analysis"])
+
+    # Recommendations
+    if verification_results.get("recommendations"):
         st.subheader("💡 Recommendations")
-        for rec in verification_results['recommendations']:
-            st.info(f"• {rec}")
+        for rec in verification_results["recommendations"]:
+            st.success(f"• {rec}")
+
 
 def display_cv_data(cv_data):
     st.subheader("📄 Extracted CV Information")

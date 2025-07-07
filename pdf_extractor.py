@@ -2,6 +2,7 @@ import PyPDF2
 import re
 from typing import Dict, List
 from dateutil.parser import parse # Import parse from dateutil for robust date parsing
+from datetime import datetime
 
 def extract_pdf_text(pdf_path: str) -> str:
     """Extract text from PDF file"""
@@ -53,6 +54,8 @@ def extract_cv_info(cv_text: str) -> Dict:
             company = match[1].strip()
             start_period = match[2].strip()
             end_period = match[3].strip()
+            if end_period.lower() == 'present' or not end_period:
+                end_period = datetime.now().strftime("%m/%Y")
 
             employment_info.append({
                 'position': position,

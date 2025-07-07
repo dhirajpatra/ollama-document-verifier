@@ -265,7 +265,12 @@ class EmploymentRAGVerifier:
             start_date = self.parse_date(parts[0])
         if len(parts) >= 2:
             end_date_str = parts[1]
-            end_date = self.parse_date(end_date_str) if end_date_str.lower() != 'present' else None
+            if end_date_str.lower() == 'present':
+                end_date = datetime.now()
+            elif end_date_str.lower() != 'present':
+                end_date = self.parse_date(end_date_str) 
+            else:
+                None
             
         return start_date, end_date
     
@@ -273,7 +278,7 @@ class EmploymentRAGVerifier:
         """Parse date string to datetime object"""
         date_str = date_str.strip()
         if not date_str or date_str.lower() == 'present':
-            return None # Return None for empty or 'Present' dates
+            return datetime.now() 
             
         # Handle different date formats (expanded list for robustness)
         formats = [
