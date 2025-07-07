@@ -3,14 +3,31 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
-from document_extractor import DocumentExtractor
-from verification_engine import VerificationEngine
-from utils import save_uploaded_file, format_verification_results
+from document_extractor import DocumentExtractor # Assumed to be your pdf_extractor.py content
+from document_matcher import DocumentMatcher
+from utils import save_uploaded_file, format_verification_results # Assuming save_uploaded_file handles target filename
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 # Import the RAG verification script
 from rag_employment_verification import EmploymentRAGVerifier
 
+import logging # <--- ADD THIS LINE
+
+# --- Configure Logging ---
+# Create a logger object
+logger = logging.getLogger(__name__)
+# Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+logger.setLevel(logging.INFO) # Or logging.DEBUG for more verbose output
+
+# Create a console handler
+handler = logging.StreamHandler()
+# Create a formatter and add it to the handler
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+# Add the handler to the logger
+if not logger.handlers: # Prevent adding multiple handlers if script reloads
+    logger.addHandler(handler)
+# --- End Logging Configuration ---
 
 # Page configuration
 st.set_page_config(
@@ -63,63 +80,16 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Function to process documents with RAG-based verification
-def rag_process_documents():
-    """Process uploaded documents with both string-based and RAG-based verification"""
-    st.markdown("## 📊 Document Verification Results")
-    
-    # Save uploaded files
-    cv_path = save_uploaded_file(st.session_state.cv_file)
-    pf_path = save_uploaded_file(st.session_state.pf_file)
-    
-    # Create progress bar
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    # Initialize verification results
-    string_results = None
-    rag_results = None
-    
-    try:
-        # Step 1: String-based verification (existing logic)
-        status_text.text("🔍 Starting string-based verification...")
-        progress_bar.progress(10)
-        
-        # Initialize RAG verifier
-        rag_verifier = EmploymentRAGVerifier(
-            ollama_host=os.getenv("OLLAMA_HOST", "http://ollama:11434")
-        )
-        
-        status_text.text("📄 Processing documents with RAG...")
-        progress_bar.progress(70)
-        
-        # Process documents with RAG
-        rag_results = rag_verifier.process_documents(cv_path, pf_path)
-        progress_bar.progress(90)
-        
-        return rag_results
-        
-    except Exception as e:
-        st.error(f"Error during verification: {str(e)}")
-        st.exception(e)
-    
-    finally:
-        # Clean up uploaded files
-        try:
-            os.remove(cv_path)
-            os.remove(pf_path)
-        except:
-            pass
-
+# Function to display RAG-based verification results
 def display_rag_results(results):
     """Display RAG-based verification results"""
     if not results:
-        st.error("No RAG-based results available")
+        st.error("No RAG-based results available.")
         return
     
     # Summary statistics
     summary = results.get("verification_summary", {})
-    status_color = "green" if summary.get("status") == "VERIFIED" else "orange"
+    status_color = "green" if summary.get("status") == "VERIFIED" else "orange" if summary.get("status") == "PARTIALLY_VERIFIED" else "red"
     
     st.markdown(f"""
     <div style="padding: 10px; border-left: 4px solid {status_color}; background-color: #f0f2f6; margin: 10px 0;">
@@ -141,13 +111,21 @@ def display_rag_results(results):
             
             with st.expander(f"Match {i+1}: {cv_record.get('company', 'Unknown')} (Similarity: {similarity:.3f})"):
                 st.write("**CV Record:**")
+                # Using .get for safe access
                 st.write(f"- Company: {cv_record.get('company', 'N/A')}")
                 st.write(f"- Duration: {cv_record.get('date_range', 'N/A')}")
                 
                 st.write("**EPF Record:**")
                 st.write(f"- Company: {epf_record.get('company', 'N/A')}")
-                st.write(f"- Month/Year: {epf_record.get('month', 'N/A')}-{epf_record.get('year', 'N/A')}")
-                st.write(f"- Contribution: ₹{epf_record.get('employee_contribution', 'N/A')}")
+                # Handling month and year for EPF record
+                epf_date_info = ""
+                if 'date_range' in epf_record and epf_record['date_range']:
+                    epf_date_info = epf_record['date_range']
+                elif 'month' in epf_record and 'year' in epf_record:
+                    epf_date_info = f"{epf_record['month']}-{epf_record['year']}"
+
+                st.write(f"- Period: {epf_date_info}")
+                st.write(f"- Employee Contribution: ₹{epf_record.get('employee_contribution', 'N/A')}")
                 
                 # Similarity score with color coding
                 score_color = "green" if similarity > 0.8 else "orange" if similarity > 0.6 else "red"
@@ -155,17 +133,23 @@ def display_rag_results(results):
     
     # Employment records breakdown
     with st.expander("📋 Detailed Employment Records"):
-        if "cv_records" in results:
+        if "cv_records" in results and results["cv_records"]:
             st.markdown("**CV Employment Records:**")
-            cv_df = pd.DataFrame(results["cv_records"])
-            if not cv_df.empty:
-                st.dataframe(cv_df)
+            # Convert datetime objects to string for DataFrame display
+            cv_df_display = [{k: str(v) if isinstance(v, datetime) else v for k, v in record.items()} for record in results["cv_records"]]
+            cv_df = pd.DataFrame(cv_df_display)
+            st.dataframe(cv_df, use_container_width=True)
+        else:
+            st.info("No CV employment records parsed by RAG.")
         
-        if "epf_records" in results:
+        if "epf_records" in results and results["epf_records"]:
             st.markdown("**EPF Employment Records:**")
-            epf_df = pd.DataFrame(results["epf_records"])
-            if not epf_df.empty:
-                st.dataframe(epf_df)
+            # Convert datetime objects to string for DataFrame display
+            epf_df_display = [{k: str(v) if isinstance(v, datetime) else v for k, v in record.items()} for record in results["epf_records"]]
+            epf_df = pd.DataFrame(epf_df_display)
+            st.dataframe(epf_df, use_container_width=True)
+        else:
+            st.info("No EPF employment records parsed by RAG.")
 
 def main():
     # Header
@@ -197,14 +181,9 @@ def main():
         st.markdown("---")
         st.subheader("⚙️ Verification Settings")
         
-        similarity_threshold = st.slider(
-            "RAG Similarity Threshold",
-            min_value=0.5,
-            max_value=1.0,
-            value=0.7,
-            step=0.05,
-            help="Minimum similarity score for RAG matching"
-        )
+        # Note: Similarity threshold is configured in rag_employment_verification.py
+        # If you want it dynamic from UI, you would pass it to EmploymentRAGVerifier
+        # For now, it's hardcoded in the verifier.
         
         if st.button("🔍 Start Verification", type="primary"):
             if cv_file and pf_file:
@@ -213,11 +192,16 @@ def main():
                 st.session_state.pf_file = pf_file
             else:
                 st.error("Please upload both documents first!")
+                logger.warning("One or both files missing when button clicked.")
     
     # Main content area
     if hasattr(st.session_state, 'start_verification') and st.session_state.start_verification:
+        logger.info("Session state 'start_verification' is True. Calling process_documents().")
         process_documents()
+        # Reset the session state to prevent re-running on refresh
+        st.session_state.start_verification = False 
     else:
+        logger.info("Session state 'start_verification' is not True or not set. Showing welcome screen.")
         show_welcome_screen()
 
 def show_welcome_screen():
@@ -261,72 +245,98 @@ def show_welcome_screen():
         Employee Contribution: ₹1,32,500
         """)
 
-# Function to process documents by string comparison and display results
+# Function to process documents with both string and RAG comparison
 def process_documents():
     st.header("🔄 Processing Documents...")
     
-    # Initialize progress bar
     progress_bar = st.progress(0)
     status_text = st.empty()
     
+    cv_local_path = None
+    pf_local_path = None
+
     try:
-        # Save uploaded files
+        # Step 0: Save uploaded files
         status_text.text("Saving uploaded files...")
         progress_bar.progress(10)
         
-        cv_path = save_uploaded_file(st.session_state.cv_file, "cv.pdf")
-        pf_path = save_uploaded_file(st.session_state.pf_file, "pf.pdf")
+        upload_dir = "uploads"
+        os.makedirs(upload_dir, exist_ok=True)
         
-        # Initialize extractors
-        status_text.text("Initializing document extractors...")
+        cv_local_path = os.path.join(upload_dir, st.session_state.cv_file.name)
+        pf_local_path = os.path.join(upload_dir, st.session_state.pf_file.name)
+
+        # Assuming save_uploaded_file from utils.py takes uploaded_file object and target_path
+        save_uploaded_file(st.session_state.cv_file, cv_local_path)
+        save_uploaded_file(st.session_state.pf_file, pf_local_path)
+        logger.info(f"Files saved: {cv_local_path}, {pf_local_path}")
+
+        # Step 1: Initialize extractors and verifiers
+        status_text.text("Initializing document extractors and verifiers...")
         progress_bar.progress(20)
         
         extractor = DocumentExtractor()
-        verification_engine = VerificationEngine()
+        verification_engine = DocumentMatcher() # For string-based
+        logger.info("Initialized DocumentExtractor and VerificationEngine.")
+
+        # Initialize RAG verifier (ollama_host can be made configurable if needed)
+        rag_verifier = EmploymentRAGVerifier(
+            ollama_host=os.getenv("OLLAMA_HOST", "http://ollama:11434")
+        )
+
+        # Step 2: Extract CV data (for string-based)
+        status_text.text("Extracting CV information (string-based)...")
+        progress_bar.progress(30)
+
+        # Using extract_pdf_text and extract_cv_info from document_extractor.py
+        cv_data_text = extractor.extract_text_from_pdf(cv_local_path)
+        pf_data_text = extractor.extract_text_from_pdf(pf_local_path)
         
-        # Extract CV data
-        status_text.text("Extracting CV information...")
+        # Step 3: Extract PF data (for string-based)
+        status_text.text("Extracting PF information (string-based)...")
         progress_bar.progress(40)
         
-        cv_data = extractor.extract_cv_data(cv_path)
-        
-        # Extract PF data
-        status_text.text("Extracting PF information...")
+        # Step 4: Perform string-based verification
+        status_text.text("Performing string-based verification...")
         progress_bar.progress(60)
-        
-        pf_data = extractor.extract_pf_data(pf_path)
-        
-        # Perform verification
-        status_text.text("Performing AI-powered verification...")
-        progress_bar.progress(80)
-        
-        verification_results = verification_engine.verify_documents(cv_data, pf_data)
-        
-        # Display results
-        status_text.text("Generating verification report...")
-        progress_bar.progress(100)
 
-        # get rag results
-        rag_results = rag_process_documents()
-        
+        string_based_results = verification_engine.verify_documents(cv_data_text, pf_data_text)
+        cv_data = string_based_results.get("cv_info", {})
+        pf_data = string_based_results.get("pf_info", {})
+        # Assuming format_verification_results is a utility function that processes the raw results
+        string_based_results = format_verification_results(string_based_results) 
+        logger.info("String-based verification completed.")
+
+        # Step 5: Perform RAG-based verification
+        logger.info("Starting RAG-based verification...")
+        status_text.text("Performing RAG-based verification...")
+        progress_bar.progress(80)
+        rag_based_results = rag_verifier.process_documents(cv_local_path, pf_local_path)
+        logger.info("RAG-based verification completed.")
+
+        # Step 6: Prepare combined results
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") # Define timestamp here
         combined_results = {
             "timestamp": timestamp,
             "files": {
                 "cv": st.session_state.cv_file.name,
                 "pf": st.session_state.pf_file.name
             },
-            "string_based_results": verification_results,
-            "rag_based_results": rag_results
+            "string_based_results": string_based_results,
+            "rag_based_results": rag_based_results
         }
+        logger.info("Combined results prepared.")
 
-        # Save results
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        # Step 7: Save combined results
         results_file = f"output/verification_results_{timestamp}.json"
+        os.makedirs("output", exist_ok=True) # Ensure output directory exists
+        with open(results_file, 'w') as f:
+            json.dump(combined_results, f, indent=4, default=str) # default=str handles datetime objects
         
         status_text.text("✅ Verification completed!")
         progress_bar.progress(100)
         
-        # Display results
+        # Step 8: Display results
         display_results(cv_data, pf_data, combined_results)
         
         # Clear progress indicators
@@ -336,26 +346,36 @@ def process_documents():
     except Exception as e:
         st.error(f"Error processing documents: {str(e)}")
         st.exception(e)
+    finally:
+        # Clean up uploaded files (only if they were successfully saved)
+        try:
+            if cv_local_path and os.path.exists(cv_local_path):
+                os.remove(cv_local_path)
+            if pf_local_path and os.path.exists(pf_local_path):
+                os.remove(pf_local_path)
+        except Exception as e:
+            st.warning(f"Could not clean up temporary files: {e}")
 
-def display_results(cv_data, pf_data, verification_results):
+def display_results(cv_data, pf_data, combined_results):
     st.header("📊 Verification Results")
     
-    # Overall match score
-    overall_score = verification_results.get('overall_score', 0)
+    # Overall match score - now from string_based_results
+    string_based_overall_score = combined_results.get('string_based_results', {}).get('overall_score', 0)
     
-    score_class = "score-high" if overall_score >= 80 else "score-medium" if overall_score >= 60 else "score-low"
+    score_class = "score-high" if string_based_overall_score >= 80 else "score-medium" if string_based_overall_score >= 60 else "score-low"
     
     st.markdown(f"""
     <div class="match-score {score_class}">
-        Overall Match Score: {overall_score}%
+        String-based Overall Match Score: {string_based_overall_score}%
     </div>
     """, unsafe_allow_html=True)
     
     # Detailed results in tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 Summary", "📄 CV Data", "📊 PF Data", "🔍 Detailed Analysis"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Summary", "📄 CV Data", "📊 PF Data", "🔍 String-based Analysis", "🧠 RAG-based Analysis"])
     
     with tab1:
-        display_summary(verification_results)
+        # Assuming display_summary handles string_based_results
+        display_summary(combined_results.get('string_based_results', {}))
     
     with tab2:
         display_cv_data(cv_data)
@@ -364,10 +384,13 @@ def display_results(cv_data, pf_data, verification_results):
         display_pf_data(pf_data)
     
     with tab4:
-        display_detailed_analysis(verification_results)
+        display_detailed_analysis(combined_results.get('string_based_results', {}))
+
+    with tab5:
+        display_rag_results(combined_results.get('rag_based_results', {})) # Call the RAG display function
 
 def display_summary(verification_results):
-    st.subheader("📋 Verification Summary")
+    st.subheader("📋 String-based Verification Summary")
     
     # Create metrics columns
     col1, col2, col3, col4 = st.columns(4)
@@ -376,6 +399,7 @@ def display_summary(verification_results):
         st.metric(
             "Overall Score", 
             f"{verification_results.get('overall_score', 0)}%",
+            # This delta logic might need adjustment if you don't have a fixed comparison
             delta=f"{verification_results.get('overall_score', 0) - 70}%" if verification_results.get('overall_score', 0) > 70 else None
         )
     
@@ -445,18 +469,65 @@ def display_pf_data(pf_data):
         create_pf_visualization(pf_data['employment_records'])
 
 def create_pf_visualization(employment_records):
-    if not employment_records:
+    # Ensure all date fields are convertible to datetime objects for plotting
+    plot_records = []
+    for record in employment_records:
+        start_date = None
+        end_date = None
+        try:
+            if 'start_period' in record and record['start_period']:
+                # Attempt to parse common date formats like MM/YYYY, YYYY
+                if re.match(r'\d{2}/\d{4}', record['start_period']):
+                    start_date = datetime.strptime(record['start_period'], '%m/%Y')
+                elif re.match(r'\d{4}', record['start_period']):
+                    start_date = datetime.strptime(record['start_period'], '%Y')
+                else:
+                    # Fallback for other formats, use a more flexible parser if available
+                    pass # Keep as None or handle
+        except ValueError:
+            pass
+
+        try:
+            if 'end_period' in record and record['end_period'].lower() != 'present' and record['end_period']:
+                if re.match(r'\d{2}/\d{4}', record['end_period']):
+                    end_date = datetime.strptime(record['end_period'], '%m/%Y')
+                elif re.match(r'\d{4}', record['end_period']):
+                    end_date = datetime.strptime(record['end_period'], '%Y')
+                else:
+                    pass # Keep as None or handle
+            elif record.get('end_period', '').lower() == 'present':
+                end_date = datetime.now() # Use current date for 'Present'
+        except ValueError:
+            pass
+
+        if start_date: # Only add if we have a valid start date
+            plot_records.append({
+                'start_date': start_date,
+                'end_date': end_date,
+                'employer_name': record.get('employer', 'Unknown Company')
+            })
+
+    if not plot_records:
+        st.info("Not enough valid date data in PF records to create a timeline visualization.")
         return
     
     # Create timeline visualization
     fig = go.Figure()
     
-    for i, record in enumerate(employment_records):
+    for i, record in enumerate(plot_records):
+        # Handle cases where end_date might be None (e.g., "Present" or unparseable)
+        x_values = [record['start_date']]
+        if record['end_date']:
+            x_values.append(record['end_date'])
+        else:
+            # If end date is 'Present' or unparseable, extend to current time or a reasonable future date for visualization
+            x_values.append(datetime.now()) # Or a fixed future date like `datetime(datetime.now().year + 1, 1, 1)`
+
         fig.add_trace(go.Scatter(
-            x=[record.get('start_date', ''), record.get('end_date', 'Present')],
-            y=[record.get('employer_name', f'Company {i+1}')] * 2,
+            x=x_values,
+            y=[record['employer_name']] * len(x_values), # Repeat employer name for start and end points
             mode='lines+markers',
-            name=record.get('employer_name', f'Company {i+1}'),
+            name=record['employer_name'],
             line=dict(width=6),
             marker=dict(size=8)
         ))
@@ -486,7 +557,7 @@ def display_detailed_analysis(verification_results):
                     for disc in period['discrepancies']:
                         st.write(f"• {disc}")
     
-    # AI Analysis
+    # AI Analysis (from string-based)
     if verification_results.get('ai_analysis'):
         st.write("**AI Analysis:**")
         st.text_area("Detailed AI Analysis", verification_results['ai_analysis'], height=200)

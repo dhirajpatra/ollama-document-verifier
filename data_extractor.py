@@ -79,7 +79,7 @@ class DocumentExtractor:
         # and to capture the company and position correctly.
         employment_pattern = r'(?P<position>[A-Za-z\s&,.-]+)\s*\n?(?P<company>[A-Za-z\s,.-]+)\s*\|\s*(?P<start_date>(?:\d{2}/\d{4}|\d{4}))\s*[-–]\s*(?P<end_date>(?:\d{2}/\d{4}|\d{4}|Present))'
         
-        matches = re.finditer(employment_pattern, text, re.MULTILINE | re.DOTALL)
+        matches = re.finditer(employment_pattern, cv_text, re.MULTILINE | re.DOTALL)
         
         for match in matches:
             employment_info.append({

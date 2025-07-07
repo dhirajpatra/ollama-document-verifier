@@ -4,20 +4,39 @@
 
 echo "🚀 Setting up Document Verification System with RAG..."
 
-# Create project structure
-mkdir -p document-verification/{uploads,output,ollama_data,ollama,models}
-cd document-verification
+# Create project structure with existence checks
+echo "📂 Creating project directories..."
+for dir in uploads output ollama_data ollama models; do
+    if [ -d "$dir" ]; then
+        echo "   ✔ $dir already exists"
+    else
+        if mkdir -p "$dir"; then
+            echo "   ✔ Created $dir"
+        else
+            echo "   ❌ Failed to create $dir"
+            exit 1
+        fi
+    fi
+done
 
-# Create .env file
-cat > .env << EOF
+# Create .env file if it doesn't exist
+if [ -f ".env" ]; then
+    echo "   ✔ .env already exists"
+else
+    cat > .env << EOF
 OLLAMA_URL=http://ollama:11434
 MODEL_NAME=gemma:2b
 SENTENCE_TRANSFORMER_MODEL=all-MiniLM-L6-v2
 SIMILARITY_THRESHOLD=0.7
 EOF
+    echo "   ✔ Created .env file"
+fi
 
-# Create .gitignore
-cat > .gitignore << EOF
+# Create .gitignore if it doesn't exist
+if [ -f ".gitignore" ]; then
+    echo "   ✔ .gitignore already exists"
+else
+    cat > .gitignore << EOF
 uploads/
 output/
 ollama_data/
@@ -32,58 +51,8 @@ venv/
 *.log
 .DS_Store
 EOF
-
-# Create README
-cat > README.md << EOF
-# Document Verification System with RAG
-
-AI-powered document verification system using Ollama, Streamlit, and RAG (Retrieval Augmented Generation).
-
-## Features
-
-- PDF text extraction and parsing
-- Employment history matching using semantic similarity
-- RAG-based verification with sentence transformers
-- AI-powered analysis using Gemma 2B
-- Detailed verification reports with confidence scores
-- Semantic search instead of simple string matching
-
-## Setup
-
-1. Run the setup script:
-   \`\`\`bash
-   ./setup.sh
-   \`\`\`
-
-2. Or manually build and run:
-   \`\`\`bash
-   docker-compose up --build
-   \`\`\`
-
-3. Access the application:
-   - Streamlit UI: http://localhost:8501
-   - Ollama API: http://localhost:11434
-
-## Usage
-
-1. Upload CV PDF
-2. Upload PF Statement PDF
-3. Click "Verify Documents"
-4. View matching results and AI analysis with similarity scores
-
-## Technical Stack
-
-- **Frontend**: Streamlit
-- **LLM**: Ollama with Gemma 2B
-- **Embeddings**: SentenceTransformers (all-MiniLM-L6-v2)
-- **Similarity**: Cosine similarity with configurable threshold
-- **Containerization**: Docker & Docker Compose
-
-## Models Used
-
-- **LLM Model**: gemma:2b (for text generation and analysis)
-- **Embedding Model**: all-MiniLM-L6-v2 (for semantic similarity)
-EOF
+    echo "   ✔ Created .gitignore file"
+fi
 
 # Function to check if Ollama is ready
 check_ollama_ready() {
@@ -111,12 +80,12 @@ check_ollama_ready() {
 check_gemma_model() {
     echo "🔍 Checking for gemma:2b model..."
     
-    if docker exec ollama ollama list | grep -q "gemma:2b"; then
+    if docker exec ollama ollama list 2>/dev/null | grep -q "gemma:2b"; then
         echo "✅ gemma:2b model is already available"
         return 0
     else
         echo "⬇️  gemma:2b model not found, pulling..."
-        if docker exec ollama ollama pull gemma:2b; then
+        if docker exec ollama ollama pull gemma:2b 2>/dev/null; then
             echo "✅ gemma:2b model downloaded successfully"
             return 0
         else
@@ -131,7 +100,7 @@ download_sentence_transformer() {
     echo "🔍 Checking for sentence transformer model..."
     
     # Check if the streamlit container is running
-    if docker ps | grep -q "document_verifier"; then
+    if docker ps 2>/dev/null | grep -q "document_verifier"; then
         echo "⬇️  Pre-downloading sentence transformer model (all-MiniLM-L6-v2)..."
         echo "📝 This may take a few minutes on first run..."
         
@@ -147,7 +116,7 @@ try:
 except Exception as e:
     print(f'❌ Error downloading model: {e}')
     exit(1)
-"
+" 2>/dev/null
         
         if [ $? -eq 0 ]; then
             echo "✅ Sentence transformer model is ready"
@@ -157,7 +126,7 @@ except Exception as e:
             return 1
         fi
     else
-        echo "❌ Streamlit container not running"
+        echo "⚠️  Streamlit container not running - will retry later"
         return 1
     fi
 }
@@ -167,15 +136,21 @@ verify_system_readiness() {
     echo "🔍 Verifying system readiness..."
     
     # Check if containers are running
-    if docker ps | grep -q "ollama" && docker ps | grep -q "document_verifier"; then
+    if docker ps 2>/dev/null | grep -q "ollama" && docker ps 2>/dev/null | grep -q "document_verifier"; then
         echo "✅ All containers are running"
         
         # Test Ollama API
         if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
             echo "✅ Ollama API is accessible"
         else
-            echo "❌ Ollama API is not accessible"
-            return 1
+            echo "⚠️  Ollama API is not accessible yet - retrying..."
+            sleep 5
+            if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+                echo "✅ Ollama API is now accessible"
+            else
+                echo "❌ Ollama API is not accessible"
+                return 1
+            fi
         fi
         
         # Test Streamlit
@@ -183,12 +158,25 @@ verify_system_readiness() {
             echo "✅ Streamlit is accessible"
         else
             echo "⚠️  Streamlit may still be starting up"
+            sleep 5
+            if curl -s http://localhost:8501 > /dev/null 2>&1; then
+                echo "✅ Streamlit is now accessible"
+            else
+                echo "⚠️  Streamlit still not accessible - check logs with 'docker compose logs document_verifier'"
+            fi
         fi
         
         return 0
     else
-        echo "❌ Not all containers are running"
-        return 1
+        echo "⚠️  Not all containers are running yet - retrying..."
+        sleep 5
+        if docker ps 2>/dev/null | grep -q "ollama" && docker ps 2>/dev/null | grep -q "document_verifier"; then
+            echo "✅ All containers are now running"
+            return 0
+        else
+            echo "❌ Containers failed to start"
+            return 1
+        fi
     fi
 }
 
@@ -203,15 +191,13 @@ show_system_info() {
     echo "📄 Output Directory: ./output/"
     echo ""
     echo "🔧 Configuration:"
-    echo "- LLM Model: gemma:2b"
-    echo "- Embedding Model: all-MiniLM-L6-v2"
-    echo "- Similarity Threshold: 0.7"
+    grep -v '^#' .env | sed '/^$/d'
     echo ""
     echo "📊 Container Status:"
-    docker compose ps
+    docker compose ps 2>/dev/null || echo "⚠️  Docker compose not running"
     echo ""
     echo "💾 Disk Usage:"
-    docker system df
+    docker system df 2>/dev/null || echo "⚠️  Docker not available"
 }
 
 # Function to setup and verify everything
@@ -219,8 +205,9 @@ setup_and_verify() {
     echo "🚀 Starting Docker containers..."
     
     # Start containers
-    if docker compose up -d --build; then
-        echo "✅ Containers started successfully"
+    if docker compose up --build -d; then
+        docker compose ps
+        echo "✅ Containers started successfully in detached mode"
     else
         echo "❌ Failed to start containers"
         exit 1
@@ -236,34 +223,48 @@ setup_and_verify() {
         if check_gemma_model; then
             echo "✅ Ollama and Gemma model ready"
             
-            # Download sentence transformer model
-            if download_sentence_transformer; then
-                echo "✅ Sentence transformer model ready"
-                
-                # Final system verification
-                if verify_system_readiness; then
-                    echo ""
-                    echo "🎉 System is fully ready!"
-                    show_system_info
-                    
-                    echo ""
-                    echo "🚀 You can now:"
-                    echo "  1. Open http://localhost:8501 in your browser"
-                    echo "  2. Upload CV and EPF documents"
-                    echo "  3. Run RAG-based verification"
-                    echo ""
-                    echo "📝 Logs:"
-                    echo "  - View logs: docker compose logs -f"
-                    echo "  - Stop system: docker compose down"
-                    
-                else
-                    echo "❌ System verification failed"
-                    exit 1
+            # Download sentence transformer model (with retry)
+            echo "🔄 Attempting to download sentence transformer model..."
+            local retry_count=0
+            local max_retries=3
+            
+            while [ $retry_count -lt $max_retries ]; do
+                if download_sentence_transformer; then
+                    break
                 fi
-            else
-                echo "❌ Sentence transformer setup failed"
+                ((retry_count++))
+                if [ $retry_count -lt $max_retries ]; then
+                    echo "🔄 Retrying in 10 seconds... (attempt $retry_count/$max_retries)"
+                    sleep 10
+                fi
+            done
+            
+            if [ $retry_count -eq $max_retries ]; then
+                echo "⚠️  Failed to download sentence transformer model after $max_retries attempts"
                 echo "💡 The system may still work, but with reduced performance"
+            else
+                echo "✅ Sentence transformer model ready"
+            fi
+            
+            # Final system verification
+            if verify_system_readiness; then
+                echo ""
+                echo "🎉 System is fully ready!"
                 show_system_info
+                
+                echo ""
+                echo "🚀 You can now:"
+                echo "  1. Open http://localhost:8501 in your browser"
+                echo "  2. Upload CV and EPF documents"
+                echo "  3. Run RAG-based verification"
+                echo ""
+                echo "📝 Logs:"
+                echo "  - View logs: docker compose logs -f"
+                echo "  - Stop system: docker compose down"
+                
+            else
+                echo "❌ System verification failed"
+                exit 1
             fi
         else
             echo "❌ Gemma model setup failed"
@@ -271,7 +272,7 @@ setup_and_verify() {
         fi
     else
         echo "❌ Ollama setup failed"
-        echo "💡 Check logs: docker logs ollama"
+        echo "💡 Check logs: docker compose logs ollama"
         exit 1
     fi
 }
@@ -279,14 +280,15 @@ setup_and_verify() {
 # Function to clean up system
 cleanup_system() {
     echo "🧹 Cleaning up system..."
-    docker compose down
-    docker system prune -f
+    docker compose down 2>/dev/null || echo "⚠️  No containers to stop"
+    docker rmi $(docker images -f "dangling=true" -q) 2>/dev/null || echo "⚠️  No dangling images to remove"
+    docker system prune -f 2>/dev/null || echo "⚠️  Docker prune failed"
     echo "✅ Cleanup completed"
 }
 
 # Main script execution
-echo "✅ Project structure created!"
-echo "📁 Location: document-verification/"
+echo "✅ Project setup completed!"
+echo "📁 Location: $(pwd)"
 echo ""
 
 # Check if cleanup is requested
@@ -303,7 +305,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
 else
     echo "💡 To start later, run: docker compose up --build"
     echo "🌐 Then access: http://localhost:8501"
-    echo "🧹 To cleanup, run: ./setup.sh cleanup"
+    echo "🧹 To cleanup, run: $0 cleanup"
 fi
 
 echo ""
