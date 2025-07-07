@@ -3,7 +3,7 @@ import pandas as pd
 import json
 import os
 from datetime import datetime
-from document_extractor import DocumentExtractor # Assumed to be your pdf_extractor.py content
+import pdf_extractor
 from document_matcher import DocumentMatcher
 from utils import save_uploaded_file, format_verification_results # Assuming save_uploaded_file handles target filename
 import plotly.graph_objects as go
@@ -248,10 +248,10 @@ def show_welcome_screen():
 # Function to process documents with both string and RAG comparison
 def process_documents():
     st.header("🔄 Processing Documents...")
-    
+
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+
     cv_local_path = None
     pf_local_path = None
 
@@ -259,63 +259,57 @@ def process_documents():
         # Step 0: Save uploaded files
         status_text.text("Saving uploaded files...")
         progress_bar.progress(10)
-        
+
         upload_dir = "uploads"
         os.makedirs(upload_dir, exist_ok=True)
-        
+
         cv_local_path = os.path.join(upload_dir, st.session_state.cv_file.name)
         pf_local_path = os.path.join(upload_dir, st.session_state.pf_file.name)
 
-        # Assuming save_uploaded_file from utils.py takes uploaded_file object and target_path
         save_uploaded_file(st.session_state.cv_file, cv_local_path)
         save_uploaded_file(st.session_state.pf_file, pf_local_path)
         logger.info(f"Files saved: {cv_local_path}, {pf_local_path}")
 
-        # Step 1: Initialize extractors and verifiers
-        status_text.text("Initializing document extractors and verifiers...")
+        # Step 1: Initialize verification engines
+        status_text.text("Initializing verification engines...")
         progress_bar.progress(20)
-        
-        extractor = DocumentExtractor()
-        verification_engine = DocumentMatcher() # For string-based
-        logger.info("Initialized DocumentExtractor and VerificationEngine.")
 
-        # Initialize RAG verifier (ollama_host can be made configurable if needed)
+        verification_engine = DocumentMatcher()
         rag_verifier = EmploymentRAGVerifier(
             ollama_host=os.getenv("OLLAMA_HOST", "http://ollama:11434")
         )
 
-        # Step 2: Extract CV data (for string-based)
-        status_text.text("Extracting CV information (string-based)...")
+        # Step 2: Extract plain text from PDF files
+        status_text.text("Extracting raw text from PDFs...")
         progress_bar.progress(30)
 
-        # Using extract_pdf_text and extract_cv_info from document_extractor.py
-        cv_data_text = extractor.extract_text_from_pdf(cv_local_path)
-        pf_data_text = extractor.extract_text_from_pdf(pf_local_path)
-        
-        # Step 3: Extract PF data (for string-based)
-        status_text.text("Extracting PF information (string-based)...")
+        cv_data_text = pdf_extractor.extract_pdf_text(cv_local_path)
+        pf_data_text = pdf_extractor.extract_pdf_text(pf_local_path)
+
+        # Step 3: Extract structured CV and PF data (for UI display only)
+        status_text.text("Parsing structured CV and PF data...")
         progress_bar.progress(40)
-        
-        # Step 4: Perform string-based verification
+
+        cv_data = pdf_extractor.extract_cv_info(cv_data_text)
+        pf_data = pdf_extractor.extract_pf_info(pf_data_text)
+
+        # Step 4: Perform string-based document verification
         status_text.text("Performing string-based verification...")
         progress_bar.progress(60)
 
         string_based_results = verification_engine.verify_documents(cv_data_text, pf_data_text)
-        cv_data = string_based_results.get("cv_info", {})
-        pf_data = string_based_results.get("pf_info", {})
-        # Assuming format_verification_results is a utility function that processes the raw results
-        string_based_results = format_verification_results(string_based_results) 
+        string_based_results = format_verification_results(string_based_results)
         logger.info("String-based verification completed.")
 
-        # Step 5: Perform RAG-based verification
-        logger.info("Starting RAG-based verification...")
+        # Step 5: Perform RAG-based semantic verification
         status_text.text("Performing RAG-based verification...")
         progress_bar.progress(80)
+
         rag_based_results = rag_verifier.process_documents(cv_local_path, pf_local_path)
         logger.info("RAG-based verification completed.")
 
         # Step 6: Prepare combined results
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S") # Define timestamp here
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         combined_results = {
             "timestamp": timestamp,
             "files": {
@@ -325,29 +319,26 @@ def process_documents():
             "string_based_results": string_based_results,
             "rag_based_results": rag_based_results
         }
-        logger.info("Combined results prepared.")
 
-        # Step 7: Save combined results
+        # Step 7: Save combined results to JSON
+        os.makedirs("output", exist_ok=True)
         results_file = f"output/verification_results_{timestamp}.json"
-        os.makedirs("output", exist_ok=True) # Ensure output directory exists
         with open(results_file, 'w') as f:
-            json.dump(combined_results, f, indent=4, default=str) # default=str handles datetime objects
-        
+            json.dump(combined_results, f, indent=4, default=str)
+
+        # Step 8: Display results
         status_text.text("✅ Verification completed!")
         progress_bar.progress(100)
-        
-        # Step 8: Display results
         display_results(cv_data, pf_data, combined_results)
-        
-        # Clear progress indicators
+
+        # Clean up progress indicators
         progress_bar.empty()
         status_text.empty()
-        
+
     except Exception as e:
         st.error(f"Error processing documents: {str(e)}")
         st.exception(e)
     finally:
-        # Clean up uploaded files (only if they were successfully saved)
         try:
             if cv_local_path and os.path.exists(cv_local_path):
                 os.remove(cv_local_path)
@@ -355,6 +346,7 @@ def process_documents():
                 os.remove(pf_local_path)
         except Exception as e:
             st.warning(f"Could not clean up temporary files: {e}")
+
 
 def display_results(cv_data, pf_data, combined_results):
     st.header("📊 Verification Results")
