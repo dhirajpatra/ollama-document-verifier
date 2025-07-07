@@ -8,6 +8,9 @@ from verification_engine import VerificationEngine
 from utils import save_uploaded_file, format_verification_results
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+# Import the RAG verification script
+from rag_employment_verification import EmploymentRAGVerifier
+
 
 # Page configuration
 st.set_page_config(
@@ -60,6 +63,110 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Function to process documents with RAG-based verification
+def rag_process_documents():
+    """Process uploaded documents with both string-based and RAG-based verification"""
+    st.markdown("## 📊 Document Verification Results")
+    
+    # Save uploaded files
+    cv_path = save_uploaded_file(st.session_state.cv_file)
+    pf_path = save_uploaded_file(st.session_state.pf_file)
+    
+    # Create progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    # Initialize verification results
+    string_results = None
+    rag_results = None
+    
+    try:
+        # Step 1: String-based verification (existing logic)
+        status_text.text("🔍 Starting string-based verification...")
+        progress_bar.progress(10)
+        
+        # Initialize RAG verifier
+        rag_verifier = EmploymentRAGVerifier(
+            ollama_host=os.getenv("OLLAMA_HOST", "http://ollama:11434")
+        )
+        
+        status_text.text("📄 Processing documents with RAG...")
+        progress_bar.progress(70)
+        
+        # Process documents with RAG
+        rag_results = rag_verifier.process_documents(cv_path, pf_path)
+        progress_bar.progress(90)
+        
+        return rag_results
+        
+    except Exception as e:
+        st.error(f"Error during verification: {str(e)}")
+        st.exception(e)
+    
+    finally:
+        # Clean up uploaded files
+        try:
+            os.remove(cv_path)
+            os.remove(pf_path)
+        except:
+            pass
+
+def display_rag_results(results):
+    """Display RAG-based verification results"""
+    if not results:
+        st.error("No RAG-based results available")
+        return
+    
+    # Summary statistics
+    summary = results.get("verification_summary", {})
+    status_color = "green" if summary.get("status") == "VERIFIED" else "orange"
+    
+    st.markdown(f"""
+    <div style="padding: 10px; border-left: 4px solid {status_color}; background-color: #f0f2f6; margin: 10px 0;">
+        <strong>Status:</strong> {summary.get("status", "Unknown")}<br>
+        <strong>Verification %:</strong> {summary.get("verification_percentage", 0)}%<br>
+        <strong>Matches Found:</strong> {results.get("matches_found", 0)}<br>
+        <strong>CV Companies:</strong> {summary.get("total_cv_companies", 0)}<br>
+        <strong>EPF Companies:</strong> {summary.get("total_epf_companies", 0)}
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Similarity matches
+    if "matches" in results and results["matches"]:
+        st.markdown("**Semantic Similarity Matches:**")
+        for i, match in enumerate(results["matches"]):
+            cv_record = match.get("cv_record", {})
+            epf_record = match.get("epf_record", {})
+            similarity = match.get("similarity_score", 0)
+            
+            with st.expander(f"Match {i+1}: {cv_record.get('company', 'Unknown')} (Similarity: {similarity:.3f})"):
+                st.write("**CV Record:**")
+                st.write(f"- Company: {cv_record.get('company', 'N/A')}")
+                st.write(f"- Duration: {cv_record.get('date_range', 'N/A')}")
+                
+                st.write("**EPF Record:**")
+                st.write(f"- Company: {epf_record.get('company', 'N/A')}")
+                st.write(f"- Month/Year: {epf_record.get('month', 'N/A')}-{epf_record.get('year', 'N/A')}")
+                st.write(f"- Contribution: ₹{epf_record.get('employee_contribution', 'N/A')}")
+                
+                # Similarity score with color coding
+                score_color = "green" if similarity > 0.8 else "orange" if similarity > 0.6 else "red"
+                st.markdown(f"**Similarity Score:** <span style='color: {score_color}; font-weight: bold;'>{similarity:.3f}</span>", unsafe_allow_html=True)
+    
+    # Employment records breakdown
+    with st.expander("📋 Detailed Employment Records"):
+        if "cv_records" in results:
+            st.markdown("**CV Employment Records:**")
+            cv_df = pd.DataFrame(results["cv_records"])
+            if not cv_df.empty:
+                st.dataframe(cv_df)
+        
+        if "epf_records" in results:
+            st.markdown("**EPF Employment Records:**")
+            epf_df = pd.DataFrame(results["epf_records"])
+            if not epf_df.empty:
+                st.dataframe(epf_df)
+
 def main():
     # Header
     st.markdown("""
@@ -84,6 +191,19 @@ def main():
             "Upload PF Statement (PDF)", 
             type=['pdf'], 
             help="Upload the PF statement in PDF format"
+        )
+
+        # Verification settings
+        st.markdown("---")
+        st.subheader("⚙️ Verification Settings")
+        
+        similarity_threshold = st.slider(
+            "RAG Similarity Threshold",
+            min_value=0.5,
+            max_value=1.0,
+            value=0.7,
+            step=0.05,
+            help="Minimum similarity score for RAG matching"
         )
         
         if st.button("🔍 Start Verification", type="primary"):
@@ -141,6 +261,7 @@ def show_welcome_screen():
         Employee Contribution: ₹1,32,500
         """)
 
+# Function to process documents by string comparison and display results
 def process_documents():
     st.header("🔄 Processing Documents...")
     
@@ -184,8 +305,29 @@ def process_documents():
         # Display results
         status_text.text("Generating verification report...")
         progress_bar.progress(100)
+
+        # get rag results
+        rag_results = rag_process_documents()
         
-        display_results(cv_data, pf_data, verification_results)
+        combined_results = {
+            "timestamp": timestamp,
+            "files": {
+                "cv": st.session_state.cv_file.name,
+                "pf": st.session_state.pf_file.name
+            },
+            "string_based_results": verification_results,
+            "rag_based_results": rag_results
+        }
+
+        # Save results
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        results_file = f"output/verification_results_{timestamp}.json"
+        
+        status_text.text("✅ Verification completed!")
+        progress_bar.progress(100)
+        
+        # Display results
+        display_results(cv_data, pf_data, combined_results)
         
         # Clear progress indicators
         progress_bar.empty()

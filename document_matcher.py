@@ -2,29 +2,32 @@ import ollama
 import os
 import json
 from typing import Dict, List
-from pdf_extractor import extract_cv_info, extract_pf_info
+from data_extractor import DocumentExtractor # Changed import to data_extractor
 from dateutil.parser import parse
 from datetime import datetime
+from fuzzywuzzy import fuzz # Added for fuzzy matching
+
 
 class DocumentMatcher:
     def __init__(self):
         self.ollama_url = os.getenv('OLLAMA_URL', 'http://localhost:11434')
         self.model = 'gemma:2b'
+        self.extractor = DocumentExtractor() # Initialize the extractor here
     
     def verify_documents(self, cv_text: str, pf_text: str) -> Dict:
         """Main verification function"""
         try:
-            # Extract structured information
-            cv_info = extract_cv_info(cv_text)
-            pf_info = extract_pf_info(pf_text)
+            # Extract structured information using the new DocumentExtractor
+            cv_info = self.extractor.extract_cv_data(cv_text)
+            pf_info = self.extractor.extract_pf_data(pf_text)
             
-            # Perform matching
+            # Perform static (Step 1) matching
             matches = self.match_employment_records(cv_info, pf_info)
             
-            # Get AI analysis
+            # Get AI (Step 2) analysis
             ai_analysis = self.get_ai_analysis(cv_text, pf_text)
             
-            # Determine overall match
+            # Determine overall match based on static matches
             overall_match = all(match['status'] == 'matched' for match in matches)
             
             return {
@@ -42,100 +45,121 @@ class DocumentMatcher:
                 'cv_info': {},
                 'pf_info': {},
                 'matches': [],
-                'ai_analysis': f"Error in analysis: {str(e)}"
+                'ai_analysis': f"Error during verification: {str(e)}"
             }
-    
+
     def match_employment_records(self, cv_info: Dict, pf_info: Dict) -> List[Dict]:
-        """Match employment records between CV and PF"""
+        """Match employment records between CV and PF information."""
         matches = []
-        
         cv_employment = cv_info.get('employment_history', [])
-        pf_entries = pf_info.get('pf_entries', [])
-        
-        for cv_job in cv_employment:
-            match_found = False
+        pf_employment = pf_info.get('employment_records', [])
+
+        matched_pf_indices = set()
+
+        for cv_entry in cv_employment:
+            cv_company = cv_entry.get('company', '').lower()
+            cv_start_date = cv_entry.get('start_date')
+            cv_end_date = cv_entry.get('end_date')
+
+            found_match = False
+            for i, pf_entry in enumerate(pf_employment):
+                if i in matched_pf_indices:
+                    continue
+
+                pf_company = pf_entry.get('employer_name', '').lower()
+                pf_start_date = pf_entry.get('start_date')
+                pf_end_date = pf_entry.get('end_date')
+
+                company_match_score = fuzz.ratio(cv_company, pf_company)
+
+                # Consider a match if company names are very similar and dates overlap
+                if company_match_score > 80 and self._check_date_overlap(cv_start_date, cv_end_date, pf_start_date, pf_end_date):
+                    matches.append({
+                        'employer': cv_entry.get('company'),
+                        'period': f"{cv_start_date} - {cv_end_date}",
+                        'status': 'matched',
+                        'match_score': company_match_score,
+                        'cv_entry': cv_entry,
+                        'pf_entry': pf_entry
+                    })
+                    matched_pf_indices.add(i)
+                    found_match = True
+                    break
             
-            for pf_entry in pf_entries:
-                if self.is_employer_match(cv_job['company'], pf_entry['employer']):
-                    if self.is_period_overlap(cv_job, pf_entry):
-                        matches.append({
-                            'employer': cv_job['company'],
-                            'period': cv_job['period'],
-                            'status': 'matched',
-                            'cv_data': cv_job,
-                            'pf_data': pf_entry
-                        })
-                        match_found = True
-                        break
-            
-            if not match_found:
+            if not found_match:
                 matches.append({
-                    'employer': cv_job['company'],
-                    'period': cv_job['period'],
-                    'status': 'no_match',
-                    'issue': 'No corresponding PF entry found',
-                    'cv_data': cv_job,
-                    'pf_data': None
+                    'employer': cv_entry.get('company'),
+                    'period': f"{cv_start_date} - {cv_end_date}",
+                    'status': 'no PF entry found',
+                    'issue': 'No matching PF entry found or significant discrepancy in company/dates',
+                    'cv_entry': cv_entry,
+                    'pf_entry': None
                 })
         
+        # Add PF entries that were not matched by any CV entry
+        for i, pf_entry in enumerate(pf_employment):
+            if i not in matched_pf_indices:
+                matches.append({
+                    'employer': pf_entry.get('employer_name'),
+                    'period': f"{pf_entry.get('start_date')} - {pf_entry.get('end_date')}",
+                    'status': 'no CV entry found',
+                    'issue': 'PF entry exists without a matching CV entry',
+                    'cv_entry': None,
+                    'pf_entry': pf_entry
+                })
+
         return matches
-    
-    def is_employer_match(self, cv_employer: str, pf_employer: str) -> bool:
-        """Check if employer names match (fuzzy matching)"""
-        cv_clean = cv_employer.lower().replace(' ', '').replace(',', '').replace('.', '')
-        pf_clean = pf_employer.lower().replace(' ', '').replace(',', '').replace('.', '')
-        
-        # Check for partial matches
-        return cv_clean in pf_clean or pf_clean in cv_clean or \
-               any(word in pf_clean for word in cv_clean.split() if len(word) > 3)
-    
-    def is_period_overlap(self, cv_job: Dict, pf_entry: Dict) -> bool:
-        """Check if employment periods overlap"""
+
+    def _check_date_overlap(self, cv_start_str: str, cv_end_str: str, pf_start_str: str, pf_end_str: str) -> bool:
+        """Check for overlap between two date ranges (YYYY-MM format)."""
         try:
-            cv_start = int(cv_job['start_year'])
-            cv_end = int(cv_job['end_year']) if cv_job['end_year'] != 'Present' else 2025
+            # Handle 'Present' by using the current year (or a future placeholder)
+            current_year = datetime.now().year
             
-            pf_start = int(pf_entry['start_period'].split('/')[1])
-            pf_end = int(pf_entry['end_period'].split('/')[1]) if pf_entry['end_period'] != 'Present' else 2025
-            
-            # Check for overlap
-            return not (cv_end < pf_start or pf_end < cv_start)
-            
-        except (ValueError, IndexError):
+            cv_start = parse(cv_start_str)
+            cv_end = parse(cv_end_str) if cv_end_str.lower() != 'present' else datetime(current_year, 12, 31)
+
+            pf_start = parse(pf_start_str)
+            pf_end = parse(pf_end_str) if pf_end_str.lower() != 'present' else datetime(current_year, 12, 31)
+
+            # Check for overlap: (start1 <= end2) and (start2 <= end1)
+            return (cv_start <= pf_end) and (pf_start <= cv_end)
+        except Exception as e:
+            print(f"Date parsing error: {e}")
             return False
     
-    def get_ai_analysis(self, cv_text: str, pf_text: str) -> str:
-        """Get AI analysis using Ollama"""
+    def get_ai_analysis(self, cv_full_text: str, pf_full_text: str) -> str:
+        """Get AI analysis using Ollama for semantic comparison."""
         try:
             prompt = f"""
-            You are a document verification expert. Analyze the following CV and PF (Provident Fund) documents to verify if the employment history matches.
+            You are a document verification expert. Analyze the following CV and PF (Provident Fund) documents. Focus specifically on comparing the employment history details provided in both documents to identify matches, mismatches, and any discrepancies.
 
-            CV Content:
-            {cv_text[:2000]}
+            CV Content (Employment History and related sections):
+            {cv_full_text}
 
-            PF Content:
-            {pf_text[:2000]}
+            PF Content (Employment and Contribution History and related sections):
+            {pf_full_text}
 
             Please provide a detailed analysis covering:
-            1. Employment periods comparison
-            2. Company name matching
-            3. Any discrepancies found
-            4. Overall verification result
-            5. Recommendations
+            1.  **Employment Periods Comparison:** Compare the start and end dates of each employment period mentioned in the CV with corresponding entries in the PF document.
+            2.  **Company Name Matching:** Verify if company names are consistent across both documents, considering minor variations.
+            3.  **Discrepancies Found:** List all specific mismatches or missing information (e.g., periods in CV not found in PF, periods in PF not found in CV, different company names for the same period, significant date differences).
+            4.  **Overall Verification Result:** State whether the employment history largely matches, has minor discrepancies, or has significant mismatches.
+            5.  **Recommendations:** Suggest what steps could be taken to reconcile any discrepancies.
 
-            Respond in a clear, professional manner.
+            Respond in a clear, professional, and structured manner, ensuring you address all five points.
             """
-            
+
             response = ollama.generate(
                 model=self.model,
                 prompt=prompt,
                 options={
                     'temperature': 0.3,
-                    'num_ctx': 4096
+                    'num_ctx': 4096 
                 }
             )
             
             return response['response']
-            
+
         except Exception as e:
             return f"AI analysis unavailable: {str(e)}"

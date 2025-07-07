@@ -1,15 +1,58 @@
+# Core Streamlit and Web Framework
 streamlit==1.31.0
 pandas==2.1.4
+plotly==5.18.0
+streamlit-option-menu==0.3.12
+
+# PDF Processing
 PyPDF2==3.0.1
 pdf2image==1.16.3
 pytesseract==0.3.10
 Pillow==10.2.0
+
+# HTTP Requests and Date Handling
 requests==2.31.0
 python-dateutil==2.8.2
+
+# String Matching (Legacy - keeping for backward compatibility)
 fuzzywuzzy==0.18.0
 python-Levenshtein==0.21.1
+
+# LLM and AI Chain Management
 langchain==0.1.5
 langchain-community==0.0.17
 ollama==0.1.7
-streamlit-option-menu==0.3.12
-plotly==5.18.0
+
+# RAG and Embeddings Dependencies
+sentence-transformers==2.2.2
+transformers==4.36.2
+torch==2.1.2
+torchvision==0.16.2
+torchaudio==2.1.2
+
+# Machine Learning and Similarity
+scikit-learn==1.3.2
+numpy==1.24.4
+scipy==1.11.4
+
+# Text Processing and NLP
+nltk==3.8.1
+spacy==3.7.2
+regex==2023.12.25
+
+# Vector Database (Optional - for future enhancements)
+chromadb==0.4.22
+faiss-cpu==1.7.4
+
+# Utilities
+tqdm==4.66.1
+python-dotenv==1.0.0
+pydantic==2.5.3
+
+# Logging and Monitoring
+loguru==0.7.2
+
+# Development and Testing (Optional)
+pytest==7.4.4
+black==23.12.1
+flake8==7.0.0

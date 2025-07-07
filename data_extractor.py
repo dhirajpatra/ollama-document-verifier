@@ -24,237 +24,166 @@ class DocumentExtractor:
             print(f"Error extracting text from PDF: {e}")
             return ""
     
-    def extract_cv_data(self, cv_path: str) -> Dict:
-        """Extract structured data from CV PDF"""
-        text = self.extract_text_from_pdf(cv_path)
-        
-        if not text:
-            return {}
-        
-        # Use AI to extract structured data
-        prompt = f"""
-        Extract the following information from this CV text and return as JSON:
-        
-        1. Personal Information (name, email, phone, location)
-        2. Employment History (company, position, start_date, end_date, location)
-        3. Skills (technical skills list)
-        4. Education (degree, university, year)
-        
-        CV Text:
-        {text}
-        
-        Return only valid JSON with the structure:
-        {{
-            "personal_info": {{
-                "name": "string",
-                "email": "string", 
-                "phone": "string",
-                "location": "string"
-            }},
-            "employment_history": [
-                {{
-                    "company": "string",
-                    "position": "string",
-                    "start_date": "YYYY-MM or YYYY",
-                    "end_date": "YYYY-MM or YYYY or Present",
-                    "location": "string"
-                }}
-            ],
-            "skills": ["skill1", "skill2"],
-            "education": [
-                {{
-                    "degree": "string",
-                    "university": "string",
-                    "year": "YYYY"
-                }}
-            ]
-        }}
-        """
-        
+    def extract_cv_data(self, cv_text: str) -> Dict:
+        """Extract structured data from CV text using AI (if available) or regex."""
+        # Check if Ollama is accessible to use AI for extraction
         try:
-            response = self.call_ollama(prompt)
-            return json.loads(response)
-        except Exception as e:
-            print(f"Error extracting CV data: {e}")
-            return self.extract_cv_data_fallback(text)
-    
-    def extract_pf_data(self, pf_path: str) -> Dict:
-        """Extract structured data from PF PDF"""
-        text = self.extract_text_from_pdf(pf_path)
-        
-        if not text:
-            return {}
-        
-        # Use AI to extract structured data
-        prompt = f"""
-        Extract the following information from this PF statement text and return as JSON:
-        
-        1. Account Information (UAN, PF Account Number, Name)
-        2. Employment Records (period, employer_name, establishment_id, contributions, status)
-        
-        PF Statement Text:
-        {text}
-        
-        Return only valid JSON with the structure:
-        {{
-            "account_info": {{
-                "name": "string",
-                "uan": "string",
-                "pf_account_number": "string",
-                "date_generated": "string"
-            }},
-            "employment_records": [
-                {{
-                    "period": "MM/YYYY - MM/YYYY",
-                    "start_date": "YYYY-MM",
-                    "end_date": "YYYY-MM or Present",
-                    "employer_name": "string",
-                    "establishment_id": "string",
-                    "employee_contribution": "number",
-                    "employer_contribution": "number",
-                    "pension_contribution": "number",
-                    "status": "string"
-                }}
-            ]
-        }}
-        """
-        
-        try:
-            response = self.call_ollama(prompt)
-            return json.loads(response)
-        except Exception as e:
-            print(f"Error extracting PF data: {e}")
-            return self.extract_pf_data_fallback(text)
-    
-    def call_ollama(self, prompt: str) -> str:
-        """Make API call to Ollama"""
-        try:
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={
+            response = requests.get(f"{self.ollama_url}/api/tags")
+            if response.status_code == 200:
+                # Use AI for extraction if Ollama is running
+                prompt = f"""
+                Extract the following information from this CV text and return as JSON:
+                
+                1. Personal Information (name, email, phone, location)
+                2. Employment History (company, position, start_date, end_date, location)
+                3. Skills (technical skills list)
+                4. Education (degree, university, year)
+                
+                CV Text:
+                {cv_text}
+                
+                Return only valid JSON with the extracted data.
+                """
+                ollama_response = requests.post(f"{self.ollama_url}/api/generate", json={
                     "model": "gemma:2b",
                     "prompt": prompt,
                     "stream": False,
-                    "options": {
-                        "temperature": 0.1,
-                        "top_p": 0.9
-                    }
-                },
-                timeout=60
-            )
-            response.raise_for_status()
-            return response.json()["response"]
+                    "options": {"temperature": 0.1}
+                })
+                ollama_response.raise_for_status()
+                response_content = ollama_response.json()
+                
+                # Extract the actual JSON string from the 'response' field
+                try:
+                    # Attempt to parse the 'response' field as JSON
+                    extracted_data = json.loads(response_content['response'])
+                    return extracted_data
+                except json.JSONDecodeError:
+                    # If it's not a direct JSON string, try to find a JSON block
+                    json_match = re.search(r'```json\s*(\{.*\})\s*```', response_content['response'], re.DOTALL)
+                    if json_match:
+                        try:
+                            extracted_data = json.loads(json_match.group(1))
+                            return extracted_data
+                        except json.JSONDecodeError:
+                            pass # Fallback to regex if JSON extraction from block fails
+
+        except requests.exceptions.ConnectionError:
+            print("Ollama not running, falling back to regex for CV data extraction.")
         except Exception as e:
-            print(f"Error calling Ollama: {e}")
-            raise
-    
-    def extract_cv_data_fallback(self, text: str) -> Dict:
-        """Fallback method for CV extraction using regex"""
+            print(f"AI extraction failed: {e}, falling back to regex for CV data extraction.")
+
+        # Fallback to regex-based extraction if AI fails or is not available
+        employment_info = []
+        # Adjusted regex to be more robust for different date formats (e.g., "YYYY - YYYY" or "MM/YYYY - MM/YYYY")
+        # and to capture the company and position correctly.
+        employment_pattern = r'(?P<position>[A-Za-z\s&,.-]+)\s*\n?(?P<company>[A-Za-z\s,.-]+)\s*\|\s*(?P<start_date>(?:\d{2}/\d{4}|\d{4}))\s*[-–]\s*(?P<end_date>(?:\d{2}/\d{4}|\d{4}|Present))'
+        
+        matches = re.finditer(employment_pattern, text, re.MULTILINE | re.DOTALL)
+        
+        for match in matches:
+            employment_info.append({
+                'position': match.group('position').strip(),
+                'company': match.group('company').strip(),
+                'start_date': match.group('start_date').strip(),
+                'end_date': match.group('end_date').strip(),
+                'period': f"{match.group('start_date').strip()}-{match.group('end_date').strip()}"
+            })
+        
+        return {'employment_history': employment_info}
+
+    def extract_pf_data(self, pf_text: str) -> Dict:
+        """Extract PF contribution information from PF statement text."""
         result = {
             "personal_info": {},
-            "employment_history": [],
-            "skills": [],
-            "education": []
-        }
-        
-        # Extract name (first line usually)
-        lines = text.split('\n')
-        if lines:
-            result["personal_info"]["name"] = lines[0].strip()
-        
-        # Extract email
-        email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', text)
-        if email_match:
-            result["personal_info"]["email"] = email_match.group()
-        
-        # Extract phone
-        phone_match = re.search(r'[\+]?[1-9]?[0-9]{7,15}', text)
-        if phone_match:
-            result["personal_info"]["phone"] = phone_match.group()
-        
-        # Extract employment history (basic pattern)
-        job_patterns = [
-            r'([A-Za-z\s]+)\n([A-Za-z\s,]+)\s*\|\s*(\d{4})\s*[–-]\s*(\d{4}|Present)',
-            r'([A-Za-z\s]+)\n([A-Za-z\s,]+),\s*([A-Za-z\s]+)\s*\|\s*(\d{4})\s*[–-]\s*(\d{4}|Present)'
-        ]
-        
-        for pattern in job_patterns:
-            matches = re.findall(pattern, text, re.MULTILINE)
-            for match in matches:
-                if len(match) >= 4:
-                    result["employment_history"].append({
-                        "position": match[0].strip(),
-                        "company": match[1].strip(),
-                        "start_date": match[2] if len(match) > 2 else "",
-                        "end_date": match[3] if len(match) > 3 else "",
-                        "location": match[4] if len(match) > 4 else ""
-                    })
-        
-        # Extract skills (look for common sections)
-        skills_section = re.search(r'(?:Skills|Technical Skills|Technologies)[:\s]*\n(.*?)(?:\n\n|\n---|\nExperience)', text, re.DOTALL | re.IGNORECASE)
-        if skills_section:
-            skills_text = skills_section.group(1)
-            # Extract skills from bullet points or comma-separated
-            skills = re.findall(r'[-•]\s*([^-•\n]+)', skills_text)
-            if not skills:
-                skills = [skill.strip() for skill in skills_text.split(',')]
-            result["skills"] = [skill.strip() for skill in skills if skill.strip()]
-        
-        return result
-    
-    def extract_pf_data_fallback(self, text: str) -> Dict:
-        """Fallback method for PF extraction using regex"""
-        result = {
-            "account_info": {},
             "employment_records": []
         }
-        
-        # Extract UAN
-        uan_match = re.search(r'UAN[:\s]*(\d+)', text)
-        if uan_match:
-            result["account_info"]["uan"] = uan_match.group(1)
-        
-        # Extract PF Account Number
-        pf_match = re.search(r'PF Account Number[:\s]*([A-Z0-9/]+)', text)
-        if pf_match:
-            result["account_info"]["pf_account_number"] = pf_match.group(1)
-        
-        # Extract Name
-        name_match = re.search(r'Name[:\s]*([A-Za-z\s]+)', text)
+
+        # Extract personal information
+        name_match = re.search(r'Name:\s*(.+)', pf_text)
+        uan_match = re.search(r'UAN \(Universal Account Number\):\s*(\d+)', pf_text)
+        pf_account_match = re.search(r'PF Account Number:\s*([A-Z]{2}/\d+/\d+)', pf_text)
+
         if name_match:
-            result["account_info"]["name"] = name_match.group(1).strip()
-        
-        # Extract employment records
-        # Pattern for employment records
-        employment_pattern = r'(\d{2}/\d{4})\s*[–-]\s*(\d{2}/\d{4}|Present)\s+([A-Za-z\s&.,]+)\s+([A-Z0-9]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+(\w+)'
-        
-        matches = re.findall(employment_pattern, text)
-        for match in matches:
-            if len(match) >= 8:
-                # Convert MM/YYYY to YYYY-MM format
-                start_date = self.convert_date_format(match[0])
-                end_date = self.convert_date_format(match[1]) if match[1] != 'Present' else 'Present'
+            result["personal_info"]["name"] = name_match.group(1).strip()
+        if uan_match:
+            result["personal_info"]["uan"] = uan_match.group(1).strip()
+        if pf_account_match:
+            result["personal_info"]["pf_account_number"] = pf_account_match.group(1).strip()
+
+        # Pattern to match PF entries from the table-like structure.
+        # This regex is more robust to variations in spacing and line breaks within cells.
+        pf_pattern = re.compile(
+            r'(\d{2}/\d{4}|[A-Za-z]{3}-\d{4})\s*[-–]?\s*(\d{2}/\d{4}|[A-Za-z]{3}-\d{4}|Present)\s*\n*' # Period (e.g., 07/2019-11/2021 or Oct-2019)
+            r'\"?Employer\n*Name\n*([A-Za-z\s&,.-]+)\"?\s*\n*' # Employer Name
+            r'(?:Establishment\n*ID\n*)?([A-Z]{2}\d{7,11})\s*\n*' # Establishment ID (e.g., MH123450009 or MH123450000081412)
+            r'(?:Employee\n*Contribution\n*\(₹\)\n*)?([\d,]+)\s*\n*' # Employee Contribution
+            r'(?:Employer\n*Contribution\n*\(₹\)\n*)?([\d,]+)\s*\n*' # Employer Contribution
+            r'(?:Pension\n*\(EPS\)\s*\(?\)?\n*)?([\d,]+)\s*\n*' # Pension Contribution
+            r'(?:Status\n*)?(Active\s*\(Closed\)|\s*Missing|\s*Active)' # Status
+        , re.IGNORECASE | re.DOTALL)
+
+
+        # This pattern is specifically for the PF content that comes in a more structured, almost CSV-like format
+        # where fields are sometimes separated by '",\"'
+        pf_pattern_csv_like = re.compile(
+            r'\"(\d{2}/\d{4}|[A-Za-z]{3}-\d{4})\s*[-–]?\s*(\d{2}/\d{4}|[A-Za-z]{3}-\d{4}|Present)\"\s*,\s*' # Period
+            r'\"?([A-Za-z\s&,.-]+)\"?\s*,\s*' # Employer Name
+            r'\"?([A-Z]{2}\d{7,11})\"?\s*,\s*' # Establishment ID
+            r'\"?([\d,]+)\"?\s*,\s*' # Employee Contribution
+            r'\"?([\d,]+)\"?\s*,\s*' # Employer Contribution
+            r'\"?([\d,]+)\"?\s*,\s*' # Pension Contribution
+            r'\"?(Active\s*\(Closed\)|\s*Missing|\s*Active)\"?' # Status
+        )
+
+        matches_csv = pf_pattern_csv_like.findall(pf_text)
+        for match in matches_csv:
+            if len(match) >= 7:
+                start_date = self.convert_date_format(match[0].strip())
+                end_date = self.convert_date_format(match[1].strip()) if match[1].strip().lower() != 'present' else 'Present'
                 
                 result["employment_records"].append({
-                    "period": f"{match[0]} - {match[1]}",
+                    "period": f"{match[0].strip()} - {match[1].strip()}",
                     "start_date": start_date,
                     "end_date": end_date,
-                    "employer_name": match[2].strip(),
+                    "employer_name": match[2].replace('\n', ' ').strip(),
                     "establishment_id": match[3].strip(),
                     "employee_contribution": self.parse_amount(match[4]),
                     "employer_contribution": self.parse_amount(match[5]),
                     "pension_contribution": self.parse_amount(match[6]),
                     "status": match[7].strip()
                 })
-        
+                
+        if not result["employment_records"]: # Fallback if CSV-like pattern doesn't match
+            matches = pf_pattern.findall(pf_text)
+            for match in matches:
+                if len(match) >= 7:
+                    start_date = self.convert_date_format(match[0].strip())
+                    end_date = self.convert_date_format(match[1].strip()) if match[1].strip().lower() != 'present' else 'Present'
+                    
+                    result["employment_records"].append({
+                        "period": f"{match[0].strip()} - {match[1].strip()}",
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "employer_name": match[2].replace('\n', ' ').strip(),
+                        "establishment_id": match[3].strip(),
+                        "employee_contribution": self.parse_amount(match[4]),
+                        "employer_contribution": self.parse_amount(match[5]),
+                        "pension_contribution": self.parse_amount(match[6]),
+                        "status": match[7].strip()
+                    })
+
         return result
     
     def convert_date_format(self, date_str: str) -> str:
-        """Convert MM/YYYY to YYYY-MM format"""
+        """Convert MM/YYYY or Mon-YYYY to YYYY-MM format"""
         try:
-            if '/' in date_str:
+            if re.match(r'\d{2}/\d{4}', date_str): # MM/YYYY format
                 month, year = date_str.split('/')
                 return f"{year}-{month.zfill(2)}"
+            elif re.match(r'[A-Za-z]{3}-\d{4}', date_str): # Mon-YYYY format
+                dt_obj = datetime.strptime(date_str, '%b-%Y')
+                return dt_obj.strftime('%Y-%m')
             return date_str
         except:
             return date_str

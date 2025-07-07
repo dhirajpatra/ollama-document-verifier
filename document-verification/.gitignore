@@ -1,6 +1,7 @@
 uploads/
 output/
 ollama_data/
+models/
 __pycache__/
 *.pyc
 *.pyo
@@ -9,3 +10,4 @@ __pycache__/
 .venv/
 venv/
 *.log
+.DS_Store
