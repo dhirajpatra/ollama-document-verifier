@@ -11,7 +11,7 @@ from plotly.subplots import make_subplots
 # Import the RAG verification script
 from rag_employment_verification import EmploymentRAGVerifier
 
-import logger
+from logger import logger
 
 # Page configuration
 st.set_page_config(

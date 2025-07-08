@@ -13,11 +13,11 @@ services:
     healthcheck:
       # Keep the health check, but give it more time to start up and pull the model
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
+      interval: 60s
       timeout: 15s
       retries: 5
       start_period: 120s
-    deploy: # for laptop nvidia GPU support
+    deploy: # for laptop nvidia GPU support if not available comment out
       resources:
         reservations:
           devices:
@@ -25,7 +25,8 @@ services:
               count: 1
               capabilities: [gpu]
   streamlit:
-    build: .
+    build:
+      context: ./streamlit_app_folder
     container_name: document_verifier
     ports:
       - "8501:8501"
@@ -33,10 +34,11 @@ services:
       - ./uploads:/app/uploads
       - ./output:/app/output
     environment:
-      # --- IMPORTANT CHANGE HERE ---
-      # Changed OLLAMA_URL to OLLAMA_HOST for proper client configuration
       - OLLAMA_HOST=http://ollama:11434
+    working_dir: /app
+    command: streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
     depends_on:
       ollama:
         condition: service_healthy
-    command: streamlit run app.py --server.address=0.0.0.0
+
+

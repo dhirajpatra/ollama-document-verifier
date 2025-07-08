@@ -3,7 +3,7 @@ import re
 from typing import Dict, List
 from dateutil.parser import parse # Import parse from dateutil for robust date parsing
 from datetime import datetime
-import logger
+from logger import logger
 
 def extract_pdf_text(pdf_path: str) -> str:
     """Extract text from PDF file"""

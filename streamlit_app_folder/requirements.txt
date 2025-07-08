@@ -25,10 +25,20 @@ ollama==0.1.7
 
 # RAG and Embeddings Dependencies
 sentence-transformers==2.2.2
-transformers==4.36.2
-torch==2.1.2
-torchvision==0.16.2
-torchaudio==2.1.2
+huggingface-hub==0.14.1
+transformers==4.30.2
+# uncomment the following lines if you want to use the CPU version of PyTorch
+# torch==2.1.2
+# torchvision==0.16.2
+# torchaudio==2.1.2
+
+# for GPU support otherwise comment out the following lines
+# Ensure to install the correct version of PyTorch for your CUDA version
+# Uncomment the following lines if you have a compatible NVIDIA GPU and CUDA installed
+torch==2.1.2+cu118
+torchvision==0.16.2+cu118
+torchaudio==2.1.2+cu118
+--extra-index-url https://download.pytorch.org/whl/cu118
 
 # Machine Learning and Similarity
 scikit-learn==1.3.2

@@ -2,6 +2,10 @@
 
 This AI-powered document verification system assists in conducting background checks by comparing employment history data extracted from a Candidate's CV and their Provident Fund (PF) statement. It leverages a combination of Regex-based extraction for structured data and a RAG (Retrieval-Augmented Generation) model powered by Ollama for intelligent analysis and discrepancy detection.
 
+[! Dashboard (images/dashboard.png)]
+
+## Check out requirements.txt and other places if your system does not have GPU support
+
 ## Key Features
 
 * **PDF Text Extraction:** Robust extraction of text content from both CV and PF statement PDF documents.
