@@ -503,6 +503,69 @@ class EmploymentRAGVerifier:
             'verification_percentage': round(verification_percentage, 2),
             'status': 'VERIFIED' if verification_percentage >= 80 else 'PARTIALLY_VERIFIED' if verification_percentage >= 50 else 'NOT_VERIFIED'
         }
+    
+    def generate_structured_employment_comparison(self, cv_records: List[Dict[str, Any]], epf_records: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Generate structured comparison between CV and EPF employment histories"""
+        comparison_report = []
+
+        epf_companies = {}
+        for epf in epf_records:
+            key = epf['company'].lower().strip()
+            if key not in epf_companies:
+                epf_companies[key] = {
+                    'start_date': epf['start_date'],
+                    'end_date': epf['end_date'],
+                    'company': epf['company'],
+                    'records': []
+                }
+            epf_companies[key]['records'].append(epf)
+            if epf['start_date'] < epf_companies[key]['start_date']:
+                epf_companies[key]['start_date'] = epf['start_date']
+            if epf['end_date'] > epf_companies[key]['end_date']:
+                epf_companies[key]['end_date'] = epf['end_date']
+
+        for cv in cv_records:
+            company_key = cv['company'].lower().strip()
+            epf_entry = epf_companies.get(company_key)
+
+            if epf_entry:
+                cv_start = cv.get('start_date')
+                cv_end = cv.get('end_date')
+                epf_start = epf_entry['start_date']
+                epf_end = epf_entry['end_date']
+
+                gap_months = 0
+                if cv_start and epf_end:
+                    gap_months = max(0, (cv_start - epf_end).days // 30)
+
+                comparison_report.append({
+                    'Company': cv['company'],
+                    'CV Period': f"{cv.get('start_date', ''):%b %Y} - {cv.get('end_date', ''):%b %Y}" if cv.get('start_date') and cv.get('end_date') else cv.get('date_range', 'N/A'),
+                    'EPF Period': f"{epf_start:%b %Y} - {epf_end:%b %Y}",
+                    'Discrepancy': "None" if abs((cv_start - epf_start).days) < 90 and abs((cv_end - epf_end).days) < 90 else "Date mismatch",
+                    'Gaps in EPF': f"{gap_months} months" if gap_months > 0 else "No significant gap"
+                })
+            else:
+                comparison_report.append({
+                    'Company': cv['company'],
+                    'CV Period': f"{cv.get('start_date', ''):%b %Y} - {cv.get('end_date', ''):%b %Y}" if cv.get('start_date') and cv.get('end_date') else cv.get('date_range', 'N/A'),
+                    'EPF Period': "Not Found",
+                    'Discrepancy': "No matching EPF record",
+                    'Gaps in EPF': "N/A"
+                })
+
+        return {
+            'structured_comparison': comparison_report,
+            'cv_total': len(cv_records),
+            'epf_total': len(epf_records),
+            'matched': sum(1 for item in comparison_report if item['EPF Period'] != "Not Found")
+        }
+
+    # Example usage snippet addition to __main__ block:
+    structured_comparison = verifier.generate_structured_employment_comparison(results['cv_records'], results['pf_entries'])
+    with open('output/structured_comparison_report.json', 'w') as f:
+        json.dump(structured_comparison, f, indent=2, default=safe_json)
+    print("Structured comparison report saved to output/structured_comparison_report.json")
 
 # Example usage
 if __name__ == "__main__":
@@ -511,16 +574,13 @@ if __name__ == "__main__":
     os.makedirs('output', exist_ok=True)
 
     verifier = EmploymentRAGVerifier()
-    
-    # Create dummy PDF files for testing if they don't exist
+
     dummy_cv_path = 'uploads/cv.pdf'
     dummy_epf_path = 'uploads/EPF_Statement.pdf'
 
     if not os.path.exists(dummy_cv_path):
         print(f"Creating dummy CV file at {dummy_cv_path}")
-        # Create a simple dummy PDF content for testing
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
+
         c = canvas.Canvas(dummy_cv_path, pagesize=letter)
         c.drawString(100, 750, "Professional Experience")
         c.drawString(100, 730, "Software Engineer")
@@ -532,19 +592,21 @@ if __name__ == "__main__":
 
     if not os.path.exists(dummy_epf_path):
         print(f"Creating dummy EPF Statement file at {dummy_epf_path}")
-        
         c = canvas.Canvas(dummy_epf_path, pagesize=letter)
         c.drawString(50, 750, "Employment & Contribution History")
         c.drawString(50, 730, '"01/2020 - 12/2022","ABC Tech Solutions","EST123","15000","1800","500","CLOSED"')
         c.drawString(50, 710, '"01/2023 - Present","XYZ Software","EST456","20000","2400","700","ACTIVE"')
         c.save()
 
-    # Process documents
     results = verifier.process_documents(dummy_cv_path, dummy_epf_path)
-    
-    # Save results
+
     with open('output/verification_results.json', 'w') as f:
         json.dump(results, f, indent=2, default=safe_json)
-    
     print("Verification completed. Results saved to output/verification_results.json")
+
+    structured_comparison = verifier.generate_structured_employment_comparison(results['cv_records'], results['pf_entries'])
+    with open('output/structured_comparison_report.json', 'w') as f:
+        json.dump(structured_comparison, f, indent=2, default=safe_json)
+    print("Structured comparison report saved to output/structured_comparison_report.json")
+
     
