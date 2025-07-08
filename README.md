@@ -4,7 +4,7 @@ This AI-powered document verification system assists in conducting background ch
 
 ![Dashboard](images/dashboard.png)
 
-## Check out requirements.txt and other places if your system does not have GPU support
+### Check out requirements.txt and other places if your system does not have GPU support
 
 ## Key Features
 
