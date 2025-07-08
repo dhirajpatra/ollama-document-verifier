@@ -33,6 +33,7 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./output:/app/output
+      - ./models_cache:/root/.cache  # Mount HuggingFace model cache
     environment:
       - OLLAMA_HOST=http://ollama:11434
     working_dir: /app

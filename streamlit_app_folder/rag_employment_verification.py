@@ -9,6 +9,11 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import re
+from transformers.utils import logging
+
+logging.set_verbosity_error()
+os.environ['TRANSFORMERS_OFFLINE'] = '1'
+
 
 class EmploymentRAGVerifier:
     def __init__(self, ollama_host: str = "http://ollama:11434"):
@@ -445,7 +450,7 @@ class EmploymentRAGVerifier:
             'epf_employment_count': len(epf_records),
             'matches_found': len(matches),
             'cv_records': cv_records,
-            'epf_records': epf_records,
+            'pf_entries': epf_records,
             'matches': matches,
             'verification_summary': self.generate_verification_summary(cv_records, epf_records, matches)
         }

@@ -54,7 +54,7 @@ def extract_cv_info(cv_text: str) -> Dict:
             start = match.group("start").strip()
             end = match.group("end").strip()
 
-            if end.lower() == "present":
+            if end and isinstance(end, str) and end.lower() == "present":
                 end = datetime.now().strftime("%m/%Y")
 
             employment_info.append({
@@ -102,9 +102,11 @@ def extract_pf_info(pf_text: str) -> Dict:
                 status = quoted_fields[6].replace('\n', ' ').strip()
 
                 # Parse the period (e.g., "MM/YYYY - MM/YYYY" or "MM/YYYY - Present")
-                period_parts = period_raw.split('-')
-                start_period = period_parts[0].strip()
-                end_period = period_parts[1].strip() if len(period_parts) > 1 else "" # Handle cases where end period might be missing or malformed
+                start_period = end_period = ""
+                if '-' in period_raw:
+                    parts = period_raw.split('-')
+                    start_period = parts[0].strip()
+                    end_period = parts[1].strip() if len(parts) > 1 else ""
 
                 pf_entries.append({
                     'start_period': start_period,

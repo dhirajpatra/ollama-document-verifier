@@ -1,6 +1,8 @@
 # Use a slim Python base image
 FROM python:3.9-slim-buster
 
+ENV TRANSFORMERS_CACHE=/root/.cache
+
 # Set the working directory inside the container
 WORKDIR /app
 
