@@ -9,16 +9,32 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 import re
+from functools import lru_cache
 from transformers.utils import logging
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 logging.set_verbosity_error()
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
 
+@staticmethod
+@lru_cache(maxsize=10000)
+def get_cached_embedding(text: str) -> np.ndarray:
+    """Cached version of embedding to avoid recomputation (must be static method)"""
+    model = SentenceTransformer('all-MiniLM-L6-v2')
+    return model.encode(text)
+
+def safe_json(o):
+    if isinstance(o, datetime):
+        return o.isoformat()
+    return str(o)
+
 class EmploymentRAGVerifier:
     def __init__(self, ollama_host: str = "http://ollama:11434"):
         self.ollama_host = ollama_host
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight embedding model
+        # self.model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight embedding model
+        self.model = SentenceTransformer('/root/.cache/sentence_transformers/all-MiniLM-L6-v2')
         self.employment_data = {
             'cv_employment': [],
             'epf_employment': []
@@ -51,14 +67,14 @@ class EmploymentRAGVerifier:
         # It looks for common headers like "Experience", "Employment History", "Professional Experience"
         # and tries to capture content until another major section or end of document.
         employment_section_match = re.search(
-            r'(?:Professional Experience|Employment History|Work Experience)\s*\n*(.*?)(?=\n\n(?:Education|Certifications|Projects|Skills|Awards|Personal Details|$))', 
-            cv_text, 
+            r"Professional Experience\s*\n+(.*?)(?=\n+(Education|Certifications|Projects|Skills|---|$))",
+            cv_text,
             re.DOTALL | re.IGNORECASE
         )
         
         employment_text = ""
         if employment_section_match:
-            employment_text = employment_section_match.group(1)
+            employment_text = employment_section_match.group(1).strip()
         else:
             # Fallback: if no specific section found, try to parse the whole text, but less reliably
             employment_text = cv_text
@@ -319,42 +335,49 @@ class EmploymentRAGVerifier:
         return None # Return None if date cannot be parsed
     
     def create_embeddings(self, employment_records: List[Dict[str, Any]]) -> List[np.ndarray]:
-        """Create embeddings for employment records"""
+        """Create embeddings for employment records with caching"""
         embeddings = []
-        
+
         for record in employment_records:
-            # Create text representation of the employment record
+            # Construct text representation
             if record['source'] == 'CV':
                 text = f"Company: {record.get('company', 'N/A')}, Start Date: {record.get('start_date', 'N/A')}, End Date: {record.get('end_date', 'N/A')}, Duration: {record.get('date_range', 'N/A')}"
             else:  # EPF
                 text = f"Company: {record.get('company', 'N/A')}, Period: {record.get('date_range', 'N/A')}, Employee Contribution: {record.get('employee_contribution', 'N/A')}"
-            
-            # Generate embedding
-            embedding = self.model.encode(text)
+
+            # Get cached or new embedding
+            embedding = self.get_cached_embedding(text)
             embeddings.append(embedding)
-            
+
         return embeddings
     
     def find_similar_employment(self, cv_records: List[Dict[str, Any]], epf_records: List[Dict[str, Any]], 
-                               threshold: float = 0.7) -> List[Dict[str, Any]]:
+                            threshold: float = 0.7) -> List[Dict[str, Any]]:
         """Find similar employment records between CV and EPF using semantic similarity"""
-        
+
         if not cv_records or not epf_records:
             print("No CV or EPF records to compare.")
             return []
-        
+
         # Create embeddings
         cv_embeddings = self.create_embeddings(cv_records)
         epf_embeddings = self.create_embeddings(epf_records)
-        
+
         matches = []
-        
-        # Compare each CV record with each EPF record
+
         for i, cv_record in enumerate(cv_records):
             for j, epf_record in enumerate(epf_records):
-                # Calculate cosine similarity
+                # Base similarity
                 similarity = cosine_similarity([cv_embeddings[i]], [epf_embeddings[j]])[0][0]
-                
+
+                # Boost if start dates are close (within ~3 months)
+                try:
+                    if cv_record.get("start_date") and epf_record.get("start_date"):
+                        if abs((cv_record["start_date"] - epf_record["start_date"]).days) < 90:
+                            similarity += 0.05
+                except Exception:
+                    pass  # if dates are malformed or missing, skip boost
+
                 if similarity >= threshold:
                     matches.append({
                         'cv_record': cv_record,
@@ -362,7 +385,7 @@ class EmploymentRAGVerifier:
                         'similarity_score': float(similarity),
                         'match_type': 'semantic'
                     })
-        
+
         return matches
     
     def verify_employment_with_llm(self, cv_record: Dict[str, Any], epf_records: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -506,8 +529,7 @@ if __name__ == "__main__":
 
     if not os.path.exists(dummy_epf_path):
         print(f"Creating dummy EPF Statement file at {dummy_epf_path}")
-        from reportlab.lib.pagesizes import letter
-        from reportlab.pdfgen import canvas
+        
         c = canvas.Canvas(dummy_epf_path, pagesize=letter)
         c.drawString(50, 750, "Employment & Contribution History")
         c.drawString(50, 730, '"01/2020 - 12/2022","ABC Tech Solutions","EST123","15000","1800","500","CLOSED"')
@@ -519,6 +541,7 @@ if __name__ == "__main__":
     
     # Save results
     with open('output/verification_results.json', 'w') as f:
-        json.dump(results, f, indent=2, default=str)
+        json.dump(results, f, indent=2, default=safe_json)
     
     print("Verification completed. Results saved to output/verification_results.json")
+    
