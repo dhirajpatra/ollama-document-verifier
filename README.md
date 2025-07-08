@@ -110,3 +110,26 @@ The system can be configured using the `.env` file created by `setup.sh`. Key va
     docker logs document_verifier
     ```
 * **PDF Extraction Issues:** If text extraction is poor, ensure your PDF documents are text-searchable and not just scanned images. For scanned PDFs, OCR (Optical Character Recognition) might be required (though not directly integrated in the current `pdf_extractor.py`).
+
+## Contributions
+
+We welcome contributions to enhance and improve this Document Verification System! If you'd like to contribute, please follow these guidelines:
+
+1.  **Fork the repository.**
+2.  **Create a new branch** for your feature or bug fix: `git checkout -b feature/your-feature-name` or `git checkout -b bugfix/issue-description`.
+3.  **Make your changes.** Ensure your code adheres to the existing coding style and includes appropriate tests.
+4.  **Commit your changes** with a clear and concise message: `git commit -m "feat: Add new feature"`.
+5.  **Push to your fork:** `git push origin feature/your-feature-name`.
+6.  **Open a Pull Request** to the `main` branch of the original repository. Provide a detailed description of your changes and why they are necessary.
+
+### Reporting Issues
+
+If you encounter any bugs, have feature requests, or suggestions for improvement, please open an issue on the GitHub repository. When reporting a bug, provide:
+
+* A clear and concise description of the issue.
+* Steps to reproduce the behavior.
+* Expected behavior.
+* Screenshots or error messages, if applicable.
+* Your operating system and environment details.
+
+Thank you for helping to make this project better!
