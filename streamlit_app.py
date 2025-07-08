@@ -11,23 +11,7 @@ from plotly.subplots import make_subplots
 # Import the RAG verification script
 from rag_employment_verification import EmploymentRAGVerifier
 
-import logging # <--- ADD THIS LINE
-
-# --- Configure Logging ---
-# Create a logger object
-logger = logging.getLogger(__name__)
-# Set the logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-logger.setLevel(logging.INFO) # Or logging.DEBUG for more verbose output
-
-# Create a console handler
-handler = logging.StreamHandler()
-# Create a formatter and add it to the handler
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-# Add the handler to the logger
-if not logger.handlers: # Prevent adding multiple handlers if script reloads
-    logger.addHandler(handler)
-# --- End Logging Configuration ---
+import logger
 
 # Page configuration
 st.set_page_config(
@@ -298,7 +282,7 @@ def process_documents():
         status_text.text("Performing string-based verification...")
         progress_bar.progress(60)
 
-        string_based_results = verification_engine.verify_documents(cv_data_text, pf_data_text)
+        string_based_results = verification_engine.verify_documents(cv_data, pf_data)
         string_based_results = format_verification_results(string_based_results)
         logger.info("String-based verification completed.")
 

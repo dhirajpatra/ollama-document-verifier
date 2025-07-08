@@ -3,6 +3,7 @@ import re
 from typing import Dict, List
 from dateutil.parser import parse # Import parse from dateutil for robust date parsing
 from datetime import datetime
+import logger
 
 def extract_pdf_text(pdf_path: str) -> str:
     """Extract text from PDF file"""
@@ -23,21 +24,29 @@ def extract_cv_info(cv_text: str) -> Dict:
 
     # Find the Professional Experience section
     section_match = re.search(
-        r"Professional Experience\s*\n(.*?)(?=\n---|$)",
+        r"Professional Experience\s*\n+(.*?)(?=\n+(Education|Certifications|Projects|Skills|---|$))",
         cv_text,
         re.DOTALL | re.IGNORECASE
     )
-    print(f"Section match: {section_match}")  # Debugging line to check section match
+    logger.info(f"Section match: {section_match}")  # Debugging line to check section match
+
     if section_match:
         experience_text = section_match.group(1).strip()
 
-        # Look for blocks of 2 lines: title, then "Company, City | Date – Date"
         pattern = re.compile(
-            r"(?P<position>.+?)\s*\n\s*(?P<company>[^,]+),?\s+[^|]*\|\s+(?P<start>\d{2}/\d{4}|\d{4})\s*[-–]\s*(?P<end>Present|\d{2}/\d{4}|\d{4})",
-            re.IGNORECASE
+            r"""(?P<position>.+?)                       # Position/title (first line)
+                \s*\n
+                (?P<company>[^\|]+?)\s*\|\s*           # Company name before |
+                (?P<start>\d{2}/\d{4}|\d{4})\s*[-–]\s*  # Start date
+                (?P<end>Present|\d{2}/\d{4}|\d{4})     # End date
+                \s*\n
+                (?P<details>(?:.+\n?)*?)(?=\n{2,}|$)    # Description lines until blank line
+            """,
+            re.IGNORECASE | re.VERBOSE
         )
 
-        matches = pattern.finditer(experience_text)
+        matches = list(pattern.finditer(experience_text))
+        logger.info(f"Found {len(matches)} matches in experience text")
 
         for match in matches:
             position = match.group("position").strip()
