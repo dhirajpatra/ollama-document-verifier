@@ -11,19 +11,16 @@ from sklearn.metrics.pairwise import cosine_similarity
 import re
 from functools import lru_cache
 from transformers.utils import logging
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+except ImportError:
+    print("reportlab not installed – skipping dummy PDF generation.")
+
 
 logging.set_verbosity_error()
 os.environ['TRANSFORMERS_OFFLINE'] = '1'
 
-
-@staticmethod
-@lru_cache(maxsize=10000)
-def get_cached_embedding(text: str) -> np.ndarray:
-    """Cached version of embedding to avoid recomputation (must be static method)"""
-    model = SentenceTransformer('all-MiniLM-L6-v2')
-    return model.encode(text)
 
 def safe_json(o):
     if isinstance(o, datetime):
@@ -33,13 +30,20 @@ def safe_json(o):
 class EmploymentRAGVerifier:
     def __init__(self, ollama_host: str = "http://ollama:11434"):
         self.ollama_host = ollama_host
-        # self.model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight embedding model
-        self.model = SentenceTransformer('/root/.cache/sentence_transformers/all-MiniLM-L6-v2')
+        self.model = SentenceTransformer('all-MiniLM-L6-v2')  # Lightweight embedding model
+        # self.model = SentenceTransformer('/root/.cache/sentence_transformers/all-MiniLM-L6-v2')
         self.employment_data = {
             'cv_employment': [],
             'epf_employment': []
         }
         
+    @staticmethod
+    @lru_cache(maxsize=10000)
+    def get_cached_embedding(text: str) -> np.ndarray:
+        """Cached version of embedding to avoid recomputation (must be static method)"""
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        return model.encode(text)
+
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Extract text from PDF file"""
         try:
@@ -427,10 +431,9 @@ class EmploymentRAGVerifier:
             if response.status_code == 200:
                 result = response.json()
                 # Attempt to parse the LLM's response if it's a JSON string
-                try:
-                    llm_parsed_response = json.loads(result.get('response', '{}'))
-                except json.JSONDecodeError:
-                    llm_parsed_response = {'raw_llm_response': result.get('response', '')} # Store raw if not valid JSON
+                response_content = result.get('response', '{}')
+                llm_parsed_response = response_content if isinstance(response_content, dict) else json.loads(response_content)
+
                 return {
                     'llm_response': llm_parsed_response,
                     'verification_method': 'LLM'
