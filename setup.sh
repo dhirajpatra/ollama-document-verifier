@@ -32,28 +32,6 @@ EOF
     echo "   ✔ Created .env file"
 fi
 
-# Create .gitignore if it doesn't exist
-if [ -f ".gitignore" ]; then
-    echo "   ✔ .gitignore already exists"
-else
-    cat > .gitignore << EOF
-uploads/
-output/
-ollama_data/
-models/
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.env
-.venv/
-venv/
-*.log
-.DS_Store
-EOF
-    echo "   ✔ Created .gitignore file"
-fi
-
 # Function to check if Ollama is ready
 check_ollama_ready() {
     local max_attempts=30

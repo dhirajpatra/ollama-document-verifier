@@ -20,6 +20,9 @@ def extract_pdf_text(pdf_path: str) -> str:
 
 def extract_cv_info(cv_text: str) -> Dict:
     """Extract employment information from CV text."""
+    if not isinstance(cv_text, str):
+        raise TypeError(f"cv_text must be a string, got {type(cv_text)}")
+    
     employment_info = []
 
     # Find the Professional Experience section
@@ -72,6 +75,9 @@ def extract_cv_info(cv_text: str) -> Dict:
 
 def extract_pf_info(pf_text: str) -> Dict:
     """Extract PF contribution information"""
+    if not isinstance(pf_text, str):
+        raise TypeError(f"pf_text must be a string, got {type(pf_text)}")
+    
     pf_entries = []
 
     # Split the text into lines/records. The sample PF text uses "\r\n" as record delimiters.
